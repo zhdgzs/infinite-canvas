@@ -5,6 +5,7 @@ WORKDIR /app/web
 COPY web/package.json web/bun.lock ./
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile --registry=https://registry.npmmirror.com --cache-dir=/root/.bun/install/cache
 COPY VERSION /app/VERSION
+COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
 RUN bun run build
 
