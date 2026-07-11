@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remote Docker"
+  short_description: "自动判断版本升级并推送触发远程 Docker 发布"
+  default_prompt: "使用 $remote-docker 检查仓库、自动升级版本并推送触发远程发布。"
