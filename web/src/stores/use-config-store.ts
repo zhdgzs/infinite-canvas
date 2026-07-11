@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import { nanoid } from "nanoid";
+import { fetchAiConfig, saveAiConfig, type RemoteAiConfig } from "@/services/api/ai-config";
 
 export type ApiCallFormat = "openai" | "gemini";
 
@@ -12,6 +12,8 @@ export type ModelChannel = {
     apiKey: string;
     apiFormat: ApiCallFormat;
     models: string[];
+    hasApiKey?: boolean;
+    apiKeyMasked?: string;
 };
 
 export type AiConfig = {
@@ -109,11 +111,16 @@ export const defaultWebdavSyncConfig: WebdavSyncConfig = {
 };
 
 type ConfigStore = {
+    hydrated: boolean;
+    loading: boolean;
     config: AiConfig;
     webdav: WebdavSyncConfig;
     isConfigOpen: boolean;
     configTab: ConfigTabKey;
     shouldPromptContinue: boolean;
+    loadConfig: () => Promise<void>;
+    clearConfig: () => void;
+    saveConfigNow: () => Promise<void>;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
@@ -164,78 +171,51 @@ function modelListKey(capability: ModelCapability) {
 
 function isAiConfigReady(config: AiConfig, model: string) {
     const channel = resolveModelChannel(config, model);
-    return Boolean(model.trim() && channel.baseUrl.trim() && channel.apiKey.trim());
+    return Boolean(model.trim() && channel.baseUrl.trim() && (channel.apiKey.trim() || channel.hasApiKey));
 }
 
 export const useConfigStore = create<ConfigStore>()(
-    persist(
-        (set, get) => ({
-            config: defaultConfig,
-            webdav: defaultWebdavSyncConfig,
-            isConfigOpen: false,
-            configTab: "channels",
-            shouldPromptContinue: false,
-            updateConfig: (key, value) =>
-                set((state) => ({
-                    config: {
-                        ...state.config,
-                        [key]: value,
-                    },
-                })),
-            updateWebdavConfig: (key, value) =>
-                set((state) => ({
-                    webdav: {
-                        ...state.webdav,
-                        [key]: value,
-                    },
-                })),
-            isAiConfigReady: (config, model) => isAiConfigReady(config, model),
-            openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
-            setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
-            clearPromptContinue: () => set({ shouldPromptContinue: false }),
-        }),
-        {
-            name: CONFIG_STORE_KEY,
-            partialize: (state) => ({ config: state.config, webdav: state.webdav }),
-            merge: (persisted, current) => {
-                const persistedState = (persisted || {}) as Partial<ConfigStore>;
-                const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
-                const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
-                const config = { ...defaultConfig, ...persistedConfig };
-                if (!Array.isArray(persistedConfig.channels)) config.channels = [];
-                const channels = normalizeChannels(config);
-                const models = modelOptionsFromChannels(channels);
-                return {
-                    ...current,
-                    webdav: { ...defaultWebdavSyncConfig, ...persistedWebdav },
-                    config: {
-                        ...config,
-                        channelMode: "local",
-                        apiFormat: normalizeApiFormat(config.apiFormat),
-                        channels,
-                        models,
-                        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
-                        videoModel: normalizeModelOptionValue(config.videoModel || "grok-imagine-video", channels),
-                        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
-                        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
-                        audioVoice: config.audioVoice || defaultConfig.audioVoice,
-                        audioFormat: config.audioFormat || defaultConfig.audioFormat,
-                        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
-                        audioInstructions: config.audioInstructions || "",
-                        videoSeconds: config.videoSeconds || "6",
-                        vquality: config.vquality || "720",
-                        videoGenerateAudio: config.videoGenerateAudio || "true",
-                        videoWatermark: config.videoWatermark || "false",
-                        canvasImageCount: config.canvasImageCount || "3",
-                        imageModels: Array.isArray(persistedConfig.imageModels) ? normalizeModelList(config.imageModels, channels) : filterModelsByCapability(models, "image"),
-                        videoModels: Array.isArray(persistedConfig.videoModels) ? normalizeModelList(config.videoModels, channels) : filterModelsByCapability(models, "video"),
-                        textModels: Array.isArray(persistedConfig.textModels) ? normalizeModelList(config.textModels, channels) : filterModelsByCapability(models, "text"),
-                        audioModels: Array.isArray(persistedConfig.audioModels) ? normalizeModelList(config.audioModels, channels) : filterModelsByCapability(models, "audio"),
-                    },
-                };
-            },
+    (set, get) => ({
+        hydrated: false,
+        loading: false,
+        config: normalizeConfig(defaultConfig),
+        webdav: defaultWebdavSyncConfig,
+        isConfigOpen: false,
+        configTab: "channels",
+        shouldPromptContinue: false,
+        loadConfig: async () => {
+            if (get().loading) return;
+            set({ loading: true });
+            try {
+                set({ config: configFromRemote(await fetchAiConfig()), hydrated: true });
+            } finally {
+                set({ loading: false });
+            }
         },
-    ),
+        clearConfig: () => {
+            clearConfigSaveTimer();
+            set({ hydrated: false, loading: false, config: normalizeConfig(defaultConfig) });
+        },
+        saveConfigNow: async () => {
+            clearConfigSaveTimer();
+            await saveCurrentConfig();
+        },
+        updateConfig: (key, value) => {
+            set((state) => ({ config: normalizeConfig({ ...state.config, [key]: value }) }));
+            scheduleConfigSave();
+        },
+        updateWebdavConfig: (key, value) =>
+            set((state) => ({
+                webdav: {
+                    ...state.webdav,
+                    [key]: value,
+                },
+            })),
+        isAiConfigReady: (config, model) => isAiConfigReady(config, model),
+        openConfigDialog: (shouldPromptContinue = false, configTab = "channels") => set({ isConfigOpen: true, shouldPromptContinue, configTab }),
+        setConfigDialogOpen: (isConfigOpen) => set({ isConfigOpen }),
+        clearPromptContinue: () => set({ shouldPromptContinue: false }),
+    }),
 );
 
 function normalizeModelList(models: string[], channels: ModelChannel[]) {
@@ -259,6 +239,8 @@ export function createModelChannel(channel?: Partial<ModelChannel>): ModelChanne
         apiKey: channel?.apiKey || "",
         apiFormat,
         models: uniqueRawModels(channel?.models || []),
+        hasApiKey: channel?.hasApiKey,
+        apiKeyMasked: channel?.apiKeyMasked,
     };
 }
 
@@ -318,6 +300,78 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         baseUrl: channel.baseUrl,
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
+    };
+}
+
+let configSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleConfigSave() {
+    clearConfigSaveTimer();
+    configSaveTimer = setTimeout(() => {
+        configSaveTimer = null;
+        void saveCurrentConfig().catch(() => undefined);
+    }, 700);
+}
+
+function clearConfigSaveTimer() {
+    if (configSaveTimer) clearTimeout(configSaveTimer);
+    configSaveTimer = null;
+}
+
+async function saveCurrentConfig() {
+    const current = useConfigStore.getState().config;
+    const remote = await saveAiConfig(current);
+    useConfigStore.setState({ config: mergeRemoteConfig(remote, current) });
+}
+
+function configFromRemote(remote: RemoteAiConfig) {
+    return mergeRemoteConfig(remote, defaultConfig);
+}
+
+function mergeRemoteConfig(remote: RemoteAiConfig, current: AiConfig) {
+    const remoteChannels = remote.channels.map((channel, index) => {
+        const previous = current.channels.find((item) => item.id === channel.id) || current.channels[index];
+        return createModelChannel({
+            ...channel,
+            apiKey: previous?.apiKey || "",
+            hasApiKey: channel.hasApiKey,
+            apiKeyMasked: channel.apiKeyMasked,
+        });
+    });
+    return normalizeConfig({
+        ...current,
+        ...(remote.preferences as Partial<AiConfig>),
+        channels: remoteChannels.length ? remoteChannels : current.channels,
+    });
+}
+
+function normalizeConfig(source: AiConfig) {
+    const config = { ...defaultConfig, ...source };
+    const channels = normalizeChannels(config);
+    const models = modelOptionsFromChannels(channels);
+    return {
+        ...config,
+        channelMode: "local" as const,
+        apiFormat: normalizeApiFormat(config.apiFormat),
+        channels,
+        models,
+        imageModel: normalizeModelOptionValue(config.imageModel || config.model, channels),
+        videoModel: normalizeModelOptionValue(config.videoModel || "grok-imagine-video", channels),
+        textModel: normalizeModelOptionValue(config.textModel || config.model, channels),
+        audioModel: normalizeModelOptionValue(config.audioModel || defaultConfig.audioModel, channels),
+        audioVoice: config.audioVoice || defaultConfig.audioVoice,
+        audioFormat: config.audioFormat || defaultConfig.audioFormat,
+        audioSpeed: config.audioSpeed || defaultConfig.audioSpeed,
+        audioInstructions: config.audioInstructions || "",
+        videoSeconds: config.videoSeconds || "6",
+        vquality: config.vquality || "720",
+        videoGenerateAudio: config.videoGenerateAudio || "true",
+        videoWatermark: config.videoWatermark || "false",
+        canvasImageCount: config.canvasImageCount || "3",
+        imageModels: normalizeModelList(config.imageModels, channels).length ? normalizeModelList(config.imageModels, channels) : filterModelsByCapability(models, "image"),
+        videoModels: normalizeModelList(config.videoModels, channels).length ? normalizeModelList(config.videoModels, channels) : filterModelsByCapability(models, "video"),
+        textModels: normalizeModelList(config.textModels, channels).length ? normalizeModelList(config.textModels, channels) : filterModelsByCapability(models, "text"),
+        audioModels: normalizeModelList(config.audioModels, channels).length ? normalizeModelList(config.audioModels, channels) : filterModelsByCapability(models, "audio"),
     };
 }
 

@@ -9,10 +9,31 @@ COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
 RUN bun run build
 
-# 运行镜像：只启动静态前端，AI 请求由浏览器前台直连用户自己的接口。
-FROM nginx:1.27-alpine
+# 构建 Fastify 后端。
+FROM node:22-bookworm-slim AS server-build
 
-COPY --from=web-build /app/web/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm ci
+COPY server ./
+RUN npm run build && npm prune --omit=dev
+
+# 运行镜像：Fastify API + 前端静态文件。
+FROM node:22-bookworm-slim
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3000
+ENV WEB_DIST_DIR=/app/web/dist
+ENV UPLOAD_DIR=/data/uploads
+
+WORKDIR /app/server
+COPY --from=server-build /app/server/package*.json ./
+COPY --from=server-build /app/server/node_modules ./node_modules
+COPY --from=server-build /app/server/dist ./dist
+COPY --from=server-build /app/server/drizzle ./drizzle
+COPY --from=web-build /app/web/dist /app/web/dist
 
 EXPOSE 3000
+
+CMD ["sh", "-c", "node dist/scripts/migrate.js && node dist/index.js"]

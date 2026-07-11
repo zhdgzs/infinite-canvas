@@ -3,7 +3,7 @@ import { CircleAlert, Cloud, KeyRound, Link2, Plus, RefreshCw, ShieldCheck, Tras
 import { useEffect, useState } from "react";
 
 import { ModelPicker } from "@/components/model-picker";
-import { fetchChannelModels } from "@/services/api/image";
+import { refreshAiChannelModels } from "@/services/api/ai-config";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
@@ -38,12 +38,10 @@ const apiFormatOptions: Array<{ label: string; value: ApiCallFormat }> = [
     { label: "Gemini", value: "gemini" },
 ];
 
-const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets", "image-workbench", "video-workbench"];
+const webdavDomainKeys: AppSyncDomainKey[] = ["canvas", "assets"];
 const webdavDomainLabels: Record<AppSyncDomainKey, string> = {
     canvas: "画布",
     assets: "我的素材",
-    "image-workbench": "生图工作台",
-    "video-workbench": "视频创作台",
 };
 const codexSetupSteps = [
     { title: "方式一：在 Codex 中使用插件", text: "先在 Codex App 安装 Infinite Canvas 插件，再通过插件启动画布，插件会自动启动本地 Canvas Agent 并带上连接信息。" },
@@ -62,9 +60,15 @@ function createWebdavDomainProgress(): Record<AppSyncDomainKey, WebdavDomainProg
     );
 }
 
+const hiddenConfigTabs = new Set<ConfigTabKey>(["webdav"]);
+
+function visibleConfigTab(tab: ConfigTabKey): ConfigTabKey {
+    return hiddenConfigTabs.has(tab) ? "channels" : tab;
+}
+
 export function AppConfigPanel({ showDoneButton = false, initialTab = "channels" }: { showDoneButton?: boolean; initialTab?: ConfigTabKey }) {
     const { message } = App.useApp();
-    const [activeTab, setActiveTab] = useState<ConfigTabKey>(initialTab);
+    const [activeTab, setActiveTab] = useState<ConfigTabKey>(visibleConfigTab(initialTab));
     const [loadingChannelId, setLoadingChannelId] = useState("");
     const [testingWebdav, setTestingWebdav] = useState(false);
     const [syncingWebdav, setSyncingWebdav] = useState(false);
@@ -74,6 +78,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const webdav = useConfigStore((state) => state.webdav);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const updateWebdavConfig = useConfigStore((state) => state.updateWebdavConfig);
+    const saveConfigNow = useConfigStore((state) => state.saveConfigNow);
     const shouldPromptContinue = useConfigStore((state) => state.shouldPromptContinue);
     const setConfigDialogOpen = useConfigStore((state) => state.setConfigDialogOpen);
     const clearPromptContinue = useConfigStore((state) => state.clearPromptContinue);
@@ -89,14 +94,14 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const disconnectAgent = useAgentStore((state) => state.disconnectAgent);
     const modelOptions = config.models.map((model) => ({ label: modelOptionLabel(config, model), value: model }));
     const webdavReady = Boolean(webdav.url.trim());
-    useEffect(() => setActiveTab(initialTab), [initialTab]);
+    useEffect(() => setActiveTab(visibleConfigTab(initialTab)), [initialTab]);
 
     const saveConfig = (nextConfig: AiConfig) => {
         (Object.keys(nextConfig) as Array<keyof AiConfig>).forEach((key) => updateConfig(key, nextConfig[key]));
     };
 
     const finishConfig = () => {
-        const ready = config.channels.some((channel) => channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.length);
+        const ready = config.channels.some((channel) => channel.baseUrl.trim() && (channel.apiKey.trim() || channel.hasApiKey) && channel.models.length);
         setConfigDialogOpen(false);
         if (!ready) return;
         message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
@@ -130,15 +135,18 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const refreshChannelModels = async (channel: ModelChannel) => {
-        if (!channel.baseUrl.trim() || !channel.apiKey.trim()) {
+        if (!channel.baseUrl.trim() || (!channel.apiKey.trim() && !channel.hasApiKey)) {
             message.error("请先填写该渠道的 Base URL 和 API Key");
             return;
         }
         setLoadingChannelId(channel.id);
         try {
-            const models = await fetchChannelModels(channel);
-            updateChannels(config.channels.map((item) => (item.id === channel.id ? { ...item, models } : item)));
-            message.success(`${channel.name} 模型列表已更新`);
+            await saveConfigNow();
+            const latest = useConfigStore.getState().config.channels.find((item) => item.id === channel.id || item.name === channel.name);
+            if (!latest) throw new Error("渠道保存失败");
+            const remote = await refreshAiChannelModels(latest.id);
+            updateChannels(useConfigStore.getState().config.channels.map((item) => (item.id === latest.id ? { ...item, models: remote.models, hasApiKey: remote.hasApiKey, apiKeyMasked: remote.apiKeyMasked } : item)));
+            message.success(`${latest.name} 模型列表已更新`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
         } finally {
@@ -147,16 +155,18 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     };
 
     const refreshAllModels = async () => {
-        const runnable = config.channels.filter((channel) => channel.baseUrl.trim() && channel.apiKey.trim());
-        if (!runnable.length) {
-            message.error("请先填写至少一个渠道的 Base URL 和 API Key");
-            return;
-        }
         setLoadingChannelId("all");
         try {
-            const entries = await Promise.all(runnable.map(async (channel) => [channel.id, await fetchChannelModels(channel)] as const));
+            await saveConfigNow();
+            const latestConfig = useConfigStore.getState().config;
+            const runnable = latestConfig.channels.filter((channel) => channel.baseUrl.trim() && (channel.apiKey.trim() || channel.hasApiKey));
+            if (!runnable.length) {
+                message.error("请先填写至少一个渠道的 Base URL 和 API Key");
+                return;
+            }
+            const entries = await Promise.all(runnable.map(async (channel) => [channel.id, await refreshAiChannelModels(channel.id)] as const));
             const modelMap = new Map(entries);
-            updateChannels(config.channels.map((channel) => (modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id) || [] } : channel)));
+            updateChannels(latestConfig.channels.map((channel) => (modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id)?.models || [], hasApiKey: modelMap.get(channel.id)?.hasApiKey, apiKeyMasked: modelMap.get(channel.id)?.apiKeyMasked } : channel)));
             message.success("模型列表已更新");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
@@ -213,7 +223,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
         try {
             const result = await syncAppDataToWebdav(webdav, updateWebdavProgress);
             updateWebdavConfig("lastSyncedAt", result.syncedAt);
-            message.success(`同步完成：${result.projects} 个画布，${result.assets} 个素材，${result.imageLogs + result.videoLogs} 条记录，本次上传 ${result.uploadedFiles} 个文件 ${formatBytes(result.uploadedBytes)}`);
+            message.success(`同步完成：${result.projects} 个画布，${result.assets} 个素材，本次上传 ${result.uploadedFiles} 个文件 ${formatBytes(result.uploadedBytes)}`);
         } catch (error) {
             setWebdavSyncStatus(error instanceof Error ? error.message : "WebDAV 同步失败");
             message.error(error instanceof Error ? error.message : "WebDAV 同步失败");
@@ -289,7 +299,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                                     <Input value={channel.baseUrl} onChange={(event) => updateChannel(channel.id, { baseUrl: event.target.value })} />
                                                 </Form.Item>
                                                 <Form.Item label="API Key" className="mb-0">
-                                                    <Input.Password value={channel.apiKey} onChange={(event) => updateChannel(channel.id, { apiKey: event.target.value })} />
+                                                    <Input.Password value={channel.apiKey} placeholder={channel.apiKeyMasked || "API Key"} onChange={(event) => updateChannel(channel.id, { apiKey: event.target.value })} />
                                                 </Form.Item>
                                                 <Form.Item label="模型列表" className="mb-0 md:col-span-2">
                                                     <Select mode="tags" showSearch allowClear maxTagCount="responsive" placeholder="输入模型名，或点击拉取模型" value={channel.models} onChange={(models) => updateChannel(channel.id, { models })} />
@@ -391,7 +401,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                                                 <Cloud className="size-4" />
                                                 WebDAV 同步
                                             </div>
-                                            <div className="mt-1 text-xs text-stone-500">同步画布、我的素材、生成记录和本地媒体文件，不包含 AI API Key；浏览器会直接连接 WebDAV 服务。</div>
+                                            <div className="mt-1 text-xs text-stone-500">同步画布、我的素材和本地媒体文件，不包含 AI API Key；浏览器会直接连接 WebDAV 服务。</div>
                                         </div>
                                         <div className="text-xs text-stone-500">{webdav.lastSyncedAt ? `上次同步 ${formatWebdavTime(webdav.lastSyncedAt)}` : "尚未同步"}</div>
                                     </div>
@@ -484,7 +494,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                             </Form>
                         ),
                     },
-                ]}
+                ].filter((item) => !hiddenConfigTabs.has(item.key as ConfigTabKey))}
             />
             {showDoneButton ? (
                 <div className="mt-4 flex justify-end">

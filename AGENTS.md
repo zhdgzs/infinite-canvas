@@ -77,9 +77,9 @@
 
 ## 项目注意事项
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
-- 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
-- Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。
+- 当前后端持久化版以服务端 PostgreSQL 和磁盘文件为唯一真实数据源；画布、素材、生成记录和 AI 配置不要再设计成浏览器本地为主。
+- 当前 AI API Key 存在服务端数据库中，配置接口只返回脱敏值和 `hasApiKey`；前端不要直连 OpenAI/Gemini/Seedance 等 AI API。
+- Docker 镜像会由 Fastify 同时托管前端静态文件和 `/api`；生产部署仍需按实际服务器验证宿主机目录挂载、备份和 Nginx 反代。
 <!-- TRELLIS:START -->
 # Trellis Instructions
 

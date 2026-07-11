@@ -1,7 +1,6 @@
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Typography } from "antd";
-import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
 
@@ -12,9 +11,10 @@ import { VideoSettingsPanel, normalizeVideoResolutionValue, normalizeVideoSizeVa
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
+import { resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
+import { deleteGenerationTask, listGenerationTasks, type GenerationTask } from "@/services/api/generations";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -64,9 +64,6 @@ type GenerationLog = {
 type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark">;
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
-
-const LOG_STORE_KEY = "infinite-canvas:video_generation_logs";
-const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
 
 export default function VideoPage() {
     const { message } = App.useApp();
@@ -234,8 +231,8 @@ export default function VideoPage() {
         saveAs(video.url, "video.mp4");
     };
 
-    const saveResultToAssets = (video: GeneratedVideo) => {
-        addAsset({
+    const saveResultToAssets = async (video: GeneratedVideo) => {
+        await addAsset({
             kind: "video",
             title: "生成视频",
             coverUrl: "",
@@ -272,11 +269,7 @@ export default function VideoPage() {
     };
 
     const deleteSelectedLogs = () => {
-        const mediaKeys = logs
-            .filter((log) => selectedLogIds.includes(log.id))
-            .map((log) => log.video?.storageKey)
-            .filter((key): key is string => Boolean(key));
-        void Promise.all([deleteStoredMedia(mediaKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(refreshLogs);
+        void Promise.all(selectedLogIds.map((id) => deleteGenerationTask(id))).then(refreshLogs);
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
             setPreviewLog(null);
             setResults([]);
@@ -286,12 +279,12 @@ export default function VideoPage() {
     };
 
     const saveLog = async (log: GenerationLog) => {
-        await logStore.setItem(log.id, serializeLog(log));
+        setLogs((value) => [log, ...value.filter((item) => item.id !== log.id)]);
         await refreshLogs();
     };
 
     const refreshLogs = async () => {
-        const nextLogs = await readStoredLogs();
+        const nextLogs = await readRemoteLogs();
         setLogs(nextLogs);
         resumePendingLogs(nextLogs);
         return nextLogs;
@@ -686,69 +679,94 @@ function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: Ge
     );
 }
 
-async function readStoredLogs() {
-    if (typeof window === "undefined") return [];
+type RemoteVideoTaskResult = { video?: { storageKey?: string; url?: string; width?: number; height?: number; bytes?: number; mimeType?: string; durationMs?: number } };
+
+async function readRemoteLogs() {
     try {
-        const logs: GenerationLog[] = [];
-        await logStore.iterate<GenerationLog, void>((value) => {
-            logs.push(value);
-        });
-        return (await Promise.all(logs.map(normalizeLog))).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        const page = await listGenerationTasks<RemoteVideoTaskResult>({ kind: "video", pageSize: 100 });
+        return Promise.all(page.items.map(remoteVideoTaskToLog));
     } catch {
         return [];
     }
 }
 
-async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
-    const video = log.video?.storageKey ? { ...log.video, url: await resolveMediaUrl(log.video.storageKey, log.video.url) } : log.video;
-    const videoReferences = await Promise.all(
-        (log.videoReferences || []).map(async (item) => ({
-            ...item,
-            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url) : item.url,
-        })),
-    );
-    const audioReferences = await Promise.all(
-        (log.audioReferences || []).map(async (item) => ({
-            ...item,
-            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url) : item.url,
-        })),
-    );
-    const references = await Promise.all(
-        (log.references || []).map(async (item) => ({
-            ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
-        })),
-    );
-    const config = normalizeLogConfig(log);
+async function remoteVideoTaskToLog(task: GenerationTask<RemoteVideoTaskResult>): Promise<GenerationLog> {
+    const config = videoTaskConfigFromTask(task);
+    const references = await Promise.all(task.references.filter((item) => stringValue(item.kind) === "image").map(referenceImageFromTask));
+    const videoReferences = await Promise.all(task.references.filter((item) => stringValue(item.kind) === "video").map(referenceVideoFromTask));
+    const audioReferences = await Promise.all(task.references.filter((item) => stringValue(item.kind) === "audio").map(referenceAudioFromTask));
+    const video = await videoFromTask(task);
+    const status = videoTaskStatus(task.status);
     return {
-        id: log.id || nanoid(),
-        createdAt: log.createdAt || Date.now(),
-        title: log.title || log.model || "未命名",
-        prompt: log.prompt || "",
-        time: log.time || new Date().toLocaleString("zh-CN", { hour12: false }),
-        model: log.model || config.videoModel || "",
+        id: task.id,
+        createdAt: Date.parse(task.createdAt) || Date.now(),
+        title: task.prompt.slice(0, 12) || task.model || "未命名",
+        prompt: task.prompt,
+        time: formatLogTime(task.createdAt),
+        model: task.model || config.videoModel || "",
         config,
         references,
         videoReferences,
         audioReferences,
-        durationMs: log.durationMs || 0,
-        size: log.size || config.size || "",
-        resolution: normalizeResolution(log.resolution || config.vquality || ""),
-        seconds: log.seconds || config.videoSeconds || "",
-        status: log.status || "成功",
-        task: log.task,
+        durationMs: durationMs(task),
+        size: config.size,
+        resolution: normalizeResolution(config.vquality),
+        seconds: config.videoSeconds,
+        status,
+        task: { id: task.id, provider: "server", model: task.model || config.videoModel || "" },
         video,
-        error: log.error,
+        error: task.error || undefined,
     };
 }
 
-function serializeLog(log: GenerationLog): GenerationLog {
+async function referenceImageFromTask(item: Record<string, unknown>): Promise<ReferenceImage> {
     return {
-        ...log,
-        references: log.references.map((item) => ({ ...item, dataUrl: item.storageKey ? "" : item.dataUrl })),
-        videoReferences: log.videoReferences.map((item) => (item.storageKey ? { ...item, url: "" } : item)),
-        audioReferences: log.audioReferences.map((item) => (item.storageKey ? { ...item, url: "" } : item)),
-        video: log.video?.storageKey ? { ...log.video, url: "" } : log.video,
+        id: stringValue(item.id) || nanoid(),
+        name: stringValue(item.name) || "reference.png",
+        type: stringValue(item.type) || "image/png",
+        dataUrl: await resolveImageUrl(stringValue(item.storageKey), stringValue(item.dataUrl) || stringValue(item.url)),
+        storageKey: stringValue(item.storageKey) || undefined,
+        url: stringValue(item.url),
+    };
+}
+
+async function referenceVideoFromTask(item: Record<string, unknown>): Promise<ReferenceVideo> {
+    const storageKey = stringValue(item.storageKey);
+    return {
+        id: stringValue(item.id) || nanoid(),
+        name: stringValue(item.name) || "reference.mp4",
+        type: stringValue(item.type) || "video/mp4",
+        url: await resolveMediaUrl(storageKey, stringValue(item.url)),
+        storageKey: storageKey || undefined,
+        durationMs: numberValue(item.durationMs),
+    };
+}
+
+async function referenceAudioFromTask(item: Record<string, unknown>): Promise<ReferenceAudio> {
+    const storageKey = stringValue(item.storageKey);
+    return {
+        id: stringValue(item.id) || nanoid(),
+        name: stringValue(item.name) || "reference.mp3",
+        type: stringValue(item.type) || "audio/mpeg",
+        url: await resolveMediaUrl(storageKey, stringValue(item.url)),
+        storageKey: storageKey || undefined,
+        durationMs: numberValue(item.durationMs),
+    };
+}
+
+async function videoFromTask(task: GenerationTask<RemoteVideoTaskResult>): Promise<GeneratedVideo | undefined> {
+    const result = task.result.video;
+    if (!result) return undefined;
+    const storageKey = result.storageKey || "";
+    return {
+        id: task?.id || nanoid(),
+        url: await resolveMediaUrl(storageKey, result.url || ""),
+        storageKey,
+        durationMs: result.durationMs || durationMs(task),
+        width: result.width || 1280,
+        height: result.height || 720,
+        bytes: result.bytes || 0,
+        mimeType: result.mimeType || "video/mp4",
     };
 }
 
@@ -794,16 +812,41 @@ function ReferenceOrderButtons({ index, total, onMove }: { index: number; total:
     );
 }
 
-function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
+function videoTaskConfigFromTask(task: GenerationTask<RemoteVideoTaskResult>): GenerationLogConfig {
     return {
-        model: log.config?.model || log.model || "",
-        videoModel: log.config?.videoModel || log.model || "",
-        size: log.config?.size || log.size || "",
-        vquality: normalizeResolution(log.config?.vquality || log.resolution || ""),
-        videoSeconds: log.config?.videoSeconds || log.seconds || "",
-        videoGenerateAudio: log.config?.videoGenerateAudio || "true",
-        videoWatermark: log.config?.videoWatermark || "false",
+        model: task.model || "",
+        videoModel: task.model || "",
+        size: stringValue(task.config.size),
+        vquality: normalizeResolution(stringValue(task.config.vquality)),
+        videoSeconds: stringValue(task.config.videoSeconds),
+        videoGenerateAudio: stringValue(task.config.videoGenerateAudio) || "true",
+        videoWatermark: stringValue(task.config.videoWatermark) || "false",
     };
+}
+
+function videoTaskStatus(status: GenerationTask["status"]): GenerationLog["status"] {
+    if (status === "succeeded") return "成功";
+    if (status === "failed" || status === "cancelled") return "失败";
+    return "生成中";
+}
+
+function durationMs(task: Pick<GenerationTask, "createdAt" | "updatedAt" | "startedAt" | "completedAt">) {
+    const start = Date.parse(task.startedAt || task.createdAt) || Date.now();
+    const end = Date.parse(task.completedAt || task.updatedAt) || Date.now();
+    return Math.max(0, end - start);
+}
+
+function formatLogTime(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function stringValue(value: unknown) {
+    return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown) {
+    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function buildLog({ prompt, model, config, references, videoReferences, audioReferences, durationMs, status, task, video, error }: { prompt: string; model: string; config: AiConfig; references: ReferenceImage[]; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; durationMs: number; status: GenerationLog["status"]; task?: VideoGenerationTask; video?: GeneratedVideo; error?: string }): GenerationLog {

@@ -78,8 +78,10 @@ function MyAssetsTab({ onInsert }: { onInsert: (payload: InsertAssetPayload) => 
     const handleInsert = (asset: Asset) => {
         if (asset.kind === "text") {
             onInsert({ kind: "text", content: asset.data.content, title: asset.title });
-        } else {
-            onInsert(asset.kind === "video" ? { kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height } : { kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title });
+        } else if (asset.kind === "video") {
+            onInsert({ kind: "video", url: asset.data.url, storageKey: asset.data.storageKey, title: asset.title, width: asset.data.width, height: asset.data.height });
+        } else if (asset.kind === "image") {
+            onInsert({ kind: "image", dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, title: asset.title });
         }
     };
 
