@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- 自动发布：推送到 `main` 后会读取 `VERSION`，首次遇到新版本时自动创建同名 GitHub Release，并触发应用镜像、文档镜像和 GitHub Pages 发布；需在 GitHub Actions 中验证 workflow 权限及三个下游任务均成功启动。
 - 服务端持久化基础：新增 Fastify 后端、PostgreSQL 表结构、登录会话、磁盘文件访问、Docker 镜像和 Compose；已通过自动化 Docker/Postgres/API 验证，仍需在实际部署目录验证备份和反代配置。
 - 服务端持久化前端接入：画布项目、素材库、文件上传/访问和 AI 配置已改为走服务端 API；需人工验证登录后跨设备数据一致、媒体节点保存后只保留 `storageKey`、模型列表刷新由后端执行且浏览器不再落完整 API Key。
 - AI 生成任务后端化：图片、视频、音频和文本生成已改为服务端异步任务队列并由前端轮询；需用真实 provider Key 验证停止生成会取消任务、任务完成后文件写入服务端存储、刷新画布后带 `generationTaskId` 的 loading 节点可恢复。

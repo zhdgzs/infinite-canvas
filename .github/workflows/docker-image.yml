@@ -4,6 +4,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag to publish
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -24,6 +29,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=ref,event=tag
             type=sha,prefix=
 
