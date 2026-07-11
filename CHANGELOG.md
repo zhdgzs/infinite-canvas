@@ -3,7 +3,7 @@
 ## Unreleased
 
 + [新增] 新增 `remote-docker` skill，可检查仓库状态、自动判断更新级别、升级版本并推送触发远程发布。
-+ [调整] 推送到主分支后自动按 `VERSION` 创建 GitHub Release，并触发镜像和 GitHub Pages 发布。
++ [调整] 推送到主分支后仅自动发布应用 Docker 镜像，不再创建 GitHub Release、文档镜像或 GitHub Pages 发布任务。
 + [新增] 新增服务端持久化方案文档和后端基础服务骨架。
 + [调整] 画布项目、素材库、文件访问和 AI 配置改为通过服务端 API 持久化，浏览器不再保存完整 AI API Key。
 + [调整] 图片、视频、音频和文本生成改为创建服务端异步任务并轮询结果，画布 loading 节点会记录 `generationTaskId` 以便恢复。

@@ -1,11 +1,11 @@
 ---
 name: remote-docker
-description: Inspect a clean Git repository, determine whether unreleased changes are a small or large update, increment the VERSION file, commit the release version, and push the current branch so GitHub Actions publishes Docker images and other release artifacts. Use when the user asks to run remote-docker, publish or release the current repository through its remote Docker workflow, or automatically version and push a completed clean worktree.
+description: Inspect a clean Git repository, determine whether unreleased changes are a small or large update, increment the VERSION file, commit the release version, and push the current branch so GitHub Actions publishes the Docker image. Use when the user asks to run remote-docker, publish or release the current repository through its remote Docker workflow, or automatically version and push a completed clean worktree.
 ---
 
 # Remote Docker
 
-Publish a completed clean repository through its existing push-triggered GitHub Actions release workflow. Decide the update size from the actual changes; do not ask the user to choose it.
+Publish a completed clean repository through its existing push-triggered Docker workflow. Decide the update size from the actual changes; do not ask the user to choose it.
 
 ## Workflow
 
@@ -15,9 +15,9 @@ Publish a completed clean repository through its existing push-triggered GitHub 
    - The current branch is not detached and is the repository's release branch (`main` unless project instructions specify another branch).
    - An `origin` remote exists.
    - A root `VERSION` file exists.
-3. Run `git fetch origin <branch> --tags` and stop if the local branch is behind or diverged from `origin/<branch>`. Never merge, rebase, reset, or force-push in this skill.
+3. Run `git fetch origin <branch>` and stop if the local branch is behind or diverged from `origin/<branch>`. Never merge, rebase, reset, or force-push in this skill.
 4. Read the current version from `VERSION`. Accept only `vMAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH`.
-5. Require unreleased commits after the current version tag. If the tag does not exist, inspect changes since the latest reachable `v*` tag. Stop when there are no release changes.
+5. Find the reachable commit with message `chore: release <current version>` and require unreleased commits after it. If there is no matching commit, inspect the full reachable history as the initial release baseline. Stop when there are no release changes.
 6. Inspect all of these before classifying the update:
    - `git log --oneline <base>..HEAD`
    - `git diff --stat <base>..HEAD`
@@ -34,7 +34,7 @@ Publish a completed clean repository through its existing push-triggered GitHub 
 9. Before editing, committing, or pushing, show one explicit dangerous-operation confirmation using the project's required format. Include the classification evidence, old/new versions, branch, remote, commit message, and the fact that pushing triggers remote publication. Continue only after an explicit confirmation.
 10. Update `VERSION` to the new version with a trailing newline. Do not modify unrelated files or automatically rewrite the changelog.
 11. Stage only `VERSION`, commit with `chore: release <version>`, then push with `git push origin <branch>`.
-12. Report the new version, commit hash, pushed branch, and remote. Do not create another tag or GitHub Release locally; the repository's GitHub Actions release workflow owns those operations.
+12. Report the new version, commit hash, pushed branch, remote, and Docker image name. Do not create a Git tag or GitHub Release locally; the push-triggered Docker workflow owns image publication.
 
 ## Safety Rules
 
