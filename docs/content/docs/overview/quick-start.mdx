@@ -5,20 +5,18 @@ description: 用最少步骤把无限画布跑起来
 
 # 快速开始
 
-如果你只是想先把项目跑起来，优先部署或启动 `web/` 前端。
+如果你只是想先把项目完整跑起来，优先使用 Docker Compose。当前完整体验需要 Fastify 后端和 PostgreSQL。
 
 ## Vercel 部署
 
-在 Vercel 中导入仓库即可，根目录 `vercel.json` 会构建 `web/`。当前版本的 AI 请求由浏览器前台直连用户自己的 OpenAI 兼容地址，不需要额外配置服务端。
+Vercel 只适合静态前端预览；完整的登录、文件、画布、素材和 AI 生成任务需要同时部署 `server` 和 PostgreSQL。
 
-## 本地启动
+## Docker 启动
 
 ```bash
 git clone git@github.com:basketikun/infinite-canvas.git
 cd infinite-canvas
-cd web
-bun install
-bun run dev
+docker compose up -d
 ```
 
 启动后访问：
@@ -27,22 +25,24 @@ bun run dev
 http://localhost:3000
 ```
 
-## Docker 启动
+首次打开后按页面提示注册第一个 admin 账号。
+
+## 本地构建 Docker 镜像
 
 如果你需要基于当前源码构建镜像：
 
 ```bash
-docker build -t infinite-canvas .
-docker run --rm -p 3000:3000 infinite-canvas
+docker compose -f docker-compose.local.yml up -d --build
 ```
 
 ## 首次使用建议
 
-- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名。
+- 先注册第一个 admin 账号。
+- 进入配置页添加模型渠道，填入自己的 `Base URL`、`API Key` 和模型名。
 - 如果需要提示词仓库内容，打开 `/prompts` 会由浏览器前端直连拉取并缓存到 IndexedDB。
-- 如果需要跨设备同步画布、素材和生成记录，可在配置弹窗中填写 WebDAV。
 
 ## 说明
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，WebDAV 同步需要用户自行配置。
-- AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 画布、素材、生成记录和 AI 配置以服务端 PostgreSQL 为准。
+- 上传和生成的媒体文件保存在 Docker 挂载目录 `./data/uploads`。
+- 旧浏览器本地数据不迁移，按新系统重新使用。

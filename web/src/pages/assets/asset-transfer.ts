@@ -3,6 +3,7 @@ import { saveAs } from "file-saver";
 import { createZip, readZip } from "@/lib/zip";
 import { getMediaBlob, setMediaBlob } from "@/services/file-storage";
 import { getImageBlob, setImageBlob } from "@/services/image-storage";
+import { isImageStorageKey } from "@/services/storage-keys";
 import type { Asset } from "@/stores/use-asset-store";
 
 type AssetExportFile = {
@@ -52,7 +53,7 @@ export async function readAssetPackage(file: File) {
             const blob = zip.get(item.path);
             if (!blob) return;
             const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-            await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
+            await (isImageStorageKey(item.storageKey) ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
         }),
     );
     return data.assets;

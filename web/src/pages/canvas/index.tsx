@@ -6,6 +6,7 @@ import { Download, FileUp, Plus } from "lucide-react";
 import { readZip } from "@/lib/zip";
 import { setMediaBlob } from "@/services/file-storage";
 import { setImageBlob } from "@/services/image-storage";
+import { isImageStorageKey } from "@/services/storage-keys";
 import { CanvasDeleteProjectsDialog } from "@/components/canvas/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "@/components/canvas/canvas-project-card";
 import type { CanvasExportFile } from "@/types/canvas-export";
@@ -32,7 +33,7 @@ export default function CanvasPage() {
     const enterProject = (id: string) => {
         navigate(`/canvas/${id}${agentQuery}`);
     };
-    const createAndEnter = () => enterProject(createProject(`无限画布 ${projects.length + 1}`));
+    const createAndEnter = async () => enterProject(await createProject(`无限画布 ${projects.length + 1}`));
     const importCanvas = async (file?: File) => {
         if (!file) return;
         try {
@@ -46,11 +47,11 @@ export default function CanvasPage() {
                         const blob = zip.get(item.path);
                         if (!blob) return;
                         const typedBlob = blob.type ? blob : blob.slice(0, blob.size, item.mimeType);
-                        await (item.storageKey.startsWith("image:") ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
+                        await (isImageStorageKey(item.storageKey) ? setImageBlob(item.storageKey, typedBlob) : setMediaBlob(item.storageKey, typedBlob));
                     }),
                 ),
             );
-            data.projects.forEach((item) => importProject(item.project));
+            await Promise.all(data.projects.map((item) => importProject(item.project)));
             message.success(`已导入 ${data.projects.length} 个画布`);
         } catch {
             message.error("导入失败，请选择有效的画布压缩包");
@@ -62,7 +63,9 @@ export default function CanvasPage() {
     useEffect(() => {
         if (!hydrated || autoOpenRef.current || (mode !== "new" && mode !== "recent")) return;
         autoOpenRef.current = true;
-        enterProject(mode === "new" ? createProject(`无限画布 ${projects.length + 1}`) : projects[0]?.id || createProject(`无限画布 ${projects.length + 1}`));
+        void (async () => {
+            enterProject(mode === "new" ? await createProject(`无限画布 ${projects.length + 1}`) : projects[0]?.id || (await createProject(`无限画布 ${projects.length + 1}`)));
+        })();
     }, [createProject, hydrated, mode, projects]);
 
     if (hydrated && (mode === "new" || mode === "recent")) return <main className="flex h-full items-center justify-center bg-background text-sm text-stone-500">正在打开画布...</main>;
@@ -94,7 +97,7 @@ export default function CanvasPage() {
                         <Button disabled={!hydrated} icon={<FileUp className="size-4" />} onClick={() => inputRef.current?.click()}>
                             导入画布
                         </Button>
-                        <Button disabled={!hydrated} type="primary" icon={<Plus className="size-4" />} onClick={createAndEnter}>
+                        <Button disabled={!hydrated} type="primary" icon={<Plus className="size-4" />} onClick={() => void createAndEnter()}>
                             新建画布
                         </Button>
                     </div>
@@ -112,7 +115,7 @@ export default function CanvasPage() {
                     <section className="flex min-h-[360px] flex-col items-center justify-center border-y border-stone-200 text-center dark:border-stone-800">
                         <h2 className="text-xl font-medium">还没有画布</h2>
                         <p className="mt-3 text-sm text-stone-500">新建一个画布后，就可以独立保存节点、连线和画布外观。</p>
-                        <Button type="primary" className="mt-6" icon={<Plus className="size-4" />} onClick={createAndEnter}>
+                        <Button type="primary" className="mt-6" icon={<Plus className="size-4" />} onClick={() => void createAndEnter()}>
                             新建画布
                         </Button>
                     </section>

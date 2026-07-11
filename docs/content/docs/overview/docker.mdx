@@ -49,4 +49,19 @@ docker compose -f docker-compose.local.yml up -d --build
 
 ## 数据说明
 
-当前主应用镜像只启动 Next.js。画布、我的素材、生成记录和 AI API Key 默认保存在浏览器本地；第三方提示词由浏览器前端直连拉取，不需要额外挂载数据目录。
+主应用镜像会启动 Fastify 后端并托管前端静态文件，Docker Compose 同时启动 PostgreSQL。后端数据目录默认使用宿主机目录挂载：
+
+```text
+./data/postgres
+./data/uploads
+```
+
+这两个目录需要成对备份。数据库保存业务 JSON 和文件元数据，上传文件本体保存在 `./data/uploads`。
+
+首次正式部署前请把 `docker-compose.yml` 中的 `SESSION_SECRET` 改为随机值，例如：
+
+```bash
+openssl rand -base64 32
+```
+
+服务端持久化改造方案见[服务端持久化方案](/docs/progress/server-backend-storage-plan)。

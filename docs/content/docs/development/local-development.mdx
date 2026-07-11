@@ -1,13 +1,27 @@
 ---
 title: 本地开发
-description: 前端优先的本地开发方式
+description: 服务端持久化版的本地开发方式
 ---
 
 # 本地开发
 
-当前主应用以 `web/` 前端为主，AI 请求由浏览器前台直连用户自己的 OpenAI 兼容接口。
+当前主应用完整体验需要 `server/` 后端、PostgreSQL 和 `web/` 前端。生产镜像由 Fastify 同时托管前端静态文件和 `/api`。
 
-## 1. 启动前端
+## 1. 快速启动完整环境
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+访问：
+
+```text
+http://localhost:3000
+```
+
+首次打开后注册第一个 admin 账号。
+
+## 2. 单独启动前端
 
 ```bash
 cd web
@@ -21,11 +35,13 @@ bun run dev
 http://localhost:3000
 ```
 
-## 2. 配置模型
+单独启动前端时不会自动代理 `/api`，主要用于纯 UI 开发；需要完整业务流时使用 Docker Compose 或同时启动后端并配置同域反代。
 
-打开右上角配置弹窗，填写自己的 `Base URL`、`API Key` 和模型名。第三方提示词和 WebDAV 都由浏览器前端直连。
+## 3. 配置模型
 
-## 3. 启动文档站
+登录后进入配置页，添加渠道并填写自己的 `Base URL`、`API Key` 和模型名。AI 请求由后端执行，第三方提示词库仍由浏览器前端直连 GitHub。
+
+## 4. 启动文档站
 
 如果需要单独调整文档站，在 `docs` 目录执行：
 
@@ -36,5 +52,6 @@ bun run dev
 ## 常见场景
 
 - 改画布、页面和交互：主要看 `web/`
+- 改服务端持久化、账号、文件和云端 API：主要看 `server/`
 - 改提示词缓存：主要看 `web/src/services/api/prompts.ts`
 - 改文档站内容：主要看 `docs/content/docs/`

@@ -77,6 +77,27 @@
 
 ## 项目注意事项
 
-- 当前画布项目和“我的素材”主要保存在浏览器本地，不要在文档中误写成已支持云同步。
-- 当前 AI API Key 存在浏览器本地，并由前端直接请求 OpenAI 兼容接口；涉及安全说明时要写清楚。
-- Docker 静态资源路径目前仍是待办项，文档中不要过度承诺生产部署已经完全验证。
+- 当前后端持久化版以服务端 PostgreSQL 和磁盘文件为唯一真实数据源；画布、素材、生成记录和 AI 配置不要再设计成浏览器本地为主。
+- 当前 AI API Key 存在服务端数据库中，配置接口只返回脱敏值和 `hasApiKey`；前端不要直连 OpenAI/Gemini/Seedance 等 AI API。
+- Docker 镜像会由 Fastify 同时托管前端静态文件和 `/api`；生产部署仍需按实际服务器验证宿主机目录挂载、备份和 Nginx 反代。
+<!-- TRELLIS:START -->
+# Trellis Instructions
+
+These instructions are for AI assistants working in this project.
+
+This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
+
+- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
+- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.trellis/workspace/` — per-developer journals and session traces
+- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
+
+If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+
+If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
+- `.agents/skills/` — reusable Trellis skills
+- `.codex/agents/` — optional custom subagents
+
+Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+
+<!-- TRELLIS:END -->

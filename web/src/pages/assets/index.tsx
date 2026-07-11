@@ -112,14 +112,14 @@ export default function AssetsPage() {
 
         if (values.kind === "text") {
             const asset = { ...base, kind: "text" as const, data: { content: (values.content || "").trim() } };
-            editingAsset ? updateAsset(editingAsset.id, asset) : addAsset(asset);
+            editingAsset ? await updateAsset(editingAsset.id, asset) : await addAsset(asset);
         } else {
             if (!imageDraft) {
                 message.error("请选择图片文件");
                 return;
             }
             const asset = { ...base, kind: "image" as const, data: imageDraft };
-            editingAsset ? updateAsset(editingAsset.id, asset) : addAsset(asset);
+            editingAsset ? await updateAsset(editingAsset.id, asset) : await addAsset(asset);
         }
 
         message.success(editingAsset ? "素材已更新" : "素材已保存");
@@ -163,13 +163,13 @@ export default function AssetsPage() {
         if (!file) return;
         try {
             const importedAssets = await readAssetPackage(file);
-            importedAssets.forEach((asset) => {
+            await Promise.all(importedAssets.map(async (asset) => {
                 const payload = { ...asset } as Record<string, unknown>;
                 delete payload.id;
                 delete payload.createdAt;
                 delete payload.updatedAt;
-                addAsset(payload as Parameters<typeof addAsset>[0]);
-            });
+                await addAsset(payload as Parameters<typeof addAsset>[0]);
+            }));
             message.success(`已导入 ${importedAssets.length} 个素材`);
         } catch {
             message.error("导入失败，请选择有效的素材压缩包");
@@ -180,7 +180,7 @@ export default function AssetsPage() {
 
     const confirmDelete = () => {
         if (!deletingAsset) return;
-        removeAsset(deletingAsset.id);
+        void removeAsset(deletingAsset.id);
         message.success("素材已删除");
         setDeletingAsset(null);
     };
@@ -501,6 +501,8 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
                             <Typography.Paragraph className="mt-2 whitespace-pre-wrap">{asset.data.content}</Typography.Paragraph>
                         ) : asset.kind === "video" ? (
                             <video src={asset.data.url} controls className="mt-2 aspect-video w-full rounded-lg bg-black" />
+                        ) : asset.kind === "audio" ? (
+                            <audio src={asset.data.url} controls className="mt-2 w-full" />
                         ) : (
                             <Typography.Text className="mt-2 block">
                                 {asset.data.width}x{asset.data.height} · {formatBytes(asset.data.bytes)} · {asset.data.mimeType}
@@ -533,6 +535,7 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: Asset | nu
 
 function assetSummary(asset: Asset) {
     if (asset.kind === "text") return asset.data.content;
+    if (asset.kind === "audio") return `${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
     return `${asset.data.width}x${asset.data.height} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
 }
 

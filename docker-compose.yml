@@ -1,7 +1,44 @@
 services:
-  app:
-    image: ghcr.io/basketikun/infinite-canvas:latest
+  postgres:
+    image: postgres:16-alpine
+    container_name: infinite-canvas-postgres
+    environment:
+      POSTGRES_DB: infinite_canvas
+      POSTGRES_USER: infinite_canvas
+      POSTGRES_PASSWORD: infinite_canvas
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U infinite_canvas -d infinite_canvas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    image: infinite-canvas:latest
     container_name: infinite-canvas
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://infinite_canvas:infinite_canvas@postgres:5432/infinite_canvas
+      SESSION_SECRET: change-me-use-openssl-rand-base64-32
+      UPLOAD_DIR: /data/uploads
+      FILE_ACCESS_URL_TTL_SECONDS: 7200
+      IMAGE_WORKER_CONCURRENCY: 5
+      AUDIO_WORKER_CONCURRENCY: 5
+      VIDEO_WORKER_CONCURRENCY: 1
+      IMAGE_MAX_UPLOAD_MB: 50
+      VIDEO_MAX_UPLOAD_MB: 500
+      AUDIO_MAX_UPLOAD_MB: 100
+      FILE_MAX_UPLOAD_MB: 500
+      AI_DEBUG_LOG: "false"
+    volumes:
+      - ./data/uploads:/data/uploads
     ports:
       - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped

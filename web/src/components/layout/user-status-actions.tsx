@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
-import { BookOpen, Keyboard, Settings2 } from "lucide-react";
+import { BookOpen, Keyboard, LogOut, Settings2 } from "lucide-react";
+import { App, Tooltip } from "antd";
 
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { GitHubLink } from "@/components/layout/github-link";
@@ -7,6 +8,7 @@ import { VersionReleaseModal } from "@/components/layout/version-release-modal";
 import { DOCS_URL } from "@/constant/env";
 import { cn } from "@/lib/utils";
 import { canvasThemes } from "@/lib/canvas-theme";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 
@@ -17,15 +19,21 @@ type UserStatusActionsProps = {
 };
 
 export function UserStatusActions({ showConfig = true, variant = "default", onOpenShortcuts }: UserStatusActionsProps) {
+    const { message } = App.useApp();
     const theme = useThemeStore((state) => state.theme);
     const setTheme = useThemeStore((state) => state.setTheme);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
+    const logout = useAuthStore((state) => state.logout);
     const canvasTheme = canvasThemes[theme];
     const naturalIconClass = "inline-flex size-7 shrink-0 items-center justify-center text-stone-600 transition hover:text-stone-950 dark:text-stone-300 dark:hover:text-white [&_svg]:size-4";
     const iconStyle: CSSProperties | undefined = variant === "canvas" ? { color: canvasTheme.node.text } : undefined;
     const versionStyle = iconStyle;
     const gitHubClassName = "size-7 text-base";
     const gitHubStyle = iconStyle;
+    const handleLogout = async () => {
+        await logout();
+        message.success("已退出登录");
+    };
 
     return (
         <div className="inline-flex shrink-0 items-center gap-1">
@@ -45,6 +53,11 @@ export function UserStatusActions({ showConfig = true, variant = "default", onOp
                     <Keyboard className="size-4" />
                 </button>
             ) : null}
+            <Tooltip title="退出登录">
+                <button type="button" className={naturalIconClass} style={iconStyle} onClick={() => void handleLogout()} aria-label="退出登录">
+                    <LogOut className="size-4" />
+                </button>
+            </Tooltip>
         </div>
     );
 }

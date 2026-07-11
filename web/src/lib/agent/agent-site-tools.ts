@@ -10,7 +10,7 @@ import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, useConfig
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 
 // 在网页端执行 Agent 的「站点级」工具（画布列表、工作台生成、提示词搜索、素材增删查等）。
-// 这些工具的数据都在浏览器本地（localforage / zustand），因此由本模块直接读写对应 store 后返回结果。
+// 这些工具复用网页端 store/API 通道，业务数据以服务端为准；提示词缓存和设备配置仍保留在浏览器本地。
 
 export const SITE_TOOL_NAMES = [
     "canvas_list_projects",
@@ -229,7 +229,7 @@ async function addAsset(input: SiteToolInput) {
     if (kind === "text") {
         const content = String(input.content || "").trim();
         if (!content) throw new Error("kind=text 时需要提供 content 文本内容");
-        const id = store.addAsset({ kind: "text", title, coverUrl: "", tags, source, note, data: { content } });
+        const id = await store.addAsset({ kind: "text", title, coverUrl: "", tags, source, note, data: { content } });
         return { ok: true, id, kind: "text" };
     }
     if (kind === "image") {
@@ -241,7 +241,7 @@ async function addAsset(input: SiteToolInput) {
         } catch {
             throw new Error("无法读取该图片地址，请改用 dataURL 或可跨域访问的图片链接");
         }
-        const id = store.addAsset({ kind: "image", title, coverUrl: stored.url, tags, source, note, data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType } });
+        const id = await store.addAsset({ kind: "image", title, coverUrl: stored.url, tags, source, note, data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType } });
         return { ok: true, id, kind: "image" };
     }
     throw new Error("assets_add 仅支持 kind=text 或 kind=image");
