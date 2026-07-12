@@ -17,6 +17,12 @@ export async function readMediaMetadata(filePath: string, kind: FileKind) {
     return readFfprobeMetadata(filePath, kind);
 }
 
+export async function readBufferMediaMetadata(buffer: Buffer, kind: FileKind) {
+    if (kind !== "image") return {};
+    const meta = await sharp(buffer).metadata();
+    return { width: meta.width, height: meta.height };
+}
+
 async function readFfprobeMetadata(filePath: string, kind: FileKind) {
     try {
         const { stdout } = await execFileAsync("ffprobe", ["-v", "error", "-print_format", "json", "-show_streams", "-show_format", filePath], { timeout: 10000 });

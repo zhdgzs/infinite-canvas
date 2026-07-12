@@ -11,4 +11,5 @@ export type StoredFileMeta = {
     height?: number;
     durationMs?: number;
     sha256?: string;
+    storageBackendId: string;
 };

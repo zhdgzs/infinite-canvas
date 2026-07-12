@@ -1,10 +1,9 @@
-import { readFile } from "node:fs/promises";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { config } from "../config.js";
 import { db } from "../db/client.js";
 import { aiChannels, files, generationTasks } from "../db/schema.js";
-import { absoluteUploadPath, storeBufferFile } from "../files/local-storage.js";
+import { readStoredBuffer, storageBackendById, storeBufferFile } from "../files/storage.js";
 import type { StoredFileMeta } from "../files/types.js";
 import { now } from "../lib/time.js";
 
@@ -88,7 +87,7 @@ async function runImageTask(task: GenerationTask, channel: AiChannel): Promise<R
     const mode = stringValue(taskConfig.mode) || (references.length ? "edit" : "generation");
     const count = clampInt(taskConfig.count, 1, 15, 1);
     const images = channel.apiFormat === "gemini" ? await requestGeminiImages(task, channel, references, count) : mode === "edit" ? await requestOpenAiImageEdit(task, channel, references, count) : await requestOpenAiImages(task, channel, count);
-    return { result: { images: await Promise.all(images.map((image, index) => saveGeneratedBuffer(task.userId, image.buffer, `image-${index + 1}.${image.ext || "png"}`, image.mimeType))) } };
+    return { result: { images: await Promise.all(images.map((image, index) => saveGeneratedBuffer(task, image.buffer, `image-${index + 1}.${image.ext || "png"}`, image.mimeType))) } };
 }
 
 async function requestOpenAiImages(task: GenerationTask, channel: AiChannel, count: number) {
@@ -169,7 +168,7 @@ async function runAudioTask(task: GenerationTask, channel: AiChannel): Promise<R
         }),
     });
     const buffer = await readBinaryResponse(response, "音频生成失败");
-    const audio = await saveGeneratedBuffer(task.userId, buffer, `audio.${format}`, audioMimeType(format));
+    const audio = await saveGeneratedBuffer(task, buffer, `audio.${format}`, audioMimeType(format));
     return { result: { audio } };
 }
 
@@ -233,10 +232,10 @@ async function pollOpenAiVideo(task: GenerationTask, channel: AiChannel, provide
         await throwIfCancelled(task.id);
         const payload = unwrapEnvelope(await fetchJson<Record<string, unknown>>(buildApiUrl(channel.baseUrl, `/videos/${providerTaskId}`), { headers: authHeaders(channel) }));
         const url = videoResultUrl(payload);
-        if (url) return saveVideoResult(task.userId, url);
+        if (url) return saveVideoResult(task, url);
         if (stringValue(payload.status) === "completed") {
             const response = await fetch(buildApiUrl(channel.baseUrl, `/videos/${providerTaskId}/content`), { headers: authHeaders(channel) });
-            return saveGeneratedBuffer(task.userId, await readBinaryResponse(response, "视频内容下载失败"), "video.mp4", "video/mp4");
+            return saveGeneratedBuffer(task, await readBinaryResponse(response, "视频内容下载失败"), "video.mp4", "video/mp4");
         }
         if (["failed", "cancelled"].includes(stringValue(payload.status))) throw new Error(readApiError(payload.error) || "视频生成失败");
         await delay(2500);
@@ -266,7 +265,7 @@ async function pollSeedanceVideo(task: GenerationTask, channel: AiChannel, provi
         await throwIfCancelled(task.id);
         const payload = unwrapEnvelope(await fetchJson<Record<string, unknown>>(buildApiUrl(channel.baseUrl, `/contents/generations/tasks/${providerTaskId}`), { headers: authHeaders(channel) }));
         const url = videoResultUrl(payload);
-        if (url) return saveVideoResult(task.userId, url);
+        if (url) return saveVideoResult(task, url);
         const status = stringValue(payload.status);
         if (["failed", "cancelled", "expired"].includes(status)) throw new Error(readApiError(payload.error) || "Seedance 视频生成失败");
         await delay(5000);
@@ -274,17 +273,19 @@ async function pollSeedanceVideo(task: GenerationTask, channel: AiChannel, provi
     throw new Error("Seedance 视频生成超时，请稍后重试");
 }
 
-async function saveVideoResult(userId: string, url: string) {
+async function saveVideoResult(task: GenerationTask, url: string) {
     const response = await fetch(url);
-    if (!response.ok) return { url, mimeType: "video/mp4" };
-    return saveGeneratedBuffer(userId, await readBinaryResponse(response, "视频下载失败"), "video.mp4", response.headers.get("content-type") || "video/mp4");
+    if (!response.ok) throw new Error(`视频下载失败：HTTP ${response.status}`);
+    return saveGeneratedBuffer(task, await readBinaryResponse(response, "视频下载失败"), "video.mp4", response.headers.get("content-type") || "video/mp4");
 }
 
-async function saveGeneratedBuffer(userId: string, buffer: Buffer, filename: string, mimeType?: string) {
-    const meta = await storeBufferFile(userId, buffer, filename, mimeType);
+async function saveGeneratedBuffer(task: GenerationTask, buffer: Buffer, filename: string, mimeType?: string) {
+    const backend = await storageBackendById(task.storageBackendId);
+    const meta = await storeBufferFile(task.userId, backend, buffer, filename, mimeType);
     await db.insert(files).values({
         storageKey: meta.storageKey,
-        userId,
+        userId: task.userId,
+        storageBackendId: meta.storageBackendId,
         kind: meta.kind,
         path: meta.path,
         originalName: meta.originalName,
@@ -314,7 +315,7 @@ async function readReferenceMedia(userId: string, reference: Reference, defaultM
     if (storageKey) {
         const [file] = await db.select().from(files).where(and(eq(files.storageKey, storageKey), eq(files.userId, userId), isNull(files.deletedAt))).limit(1);
         if (!file) throw new Error("参考素材不存在");
-        return { buffer: await readFile(absoluteUploadPath(file.path)), mimeType: file.mimeType };
+        return { buffer: await readStoredBuffer(await storageBackendById(file.storageBackendId), file.path), mimeType: file.mimeType };
     }
     const dataUrl = stringValue(reference.dataUrl) || stringValue(reference.url);
     if (dataUrl.startsWith("data:")) return parseDataUrl(dataUrl);

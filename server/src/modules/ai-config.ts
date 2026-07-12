@@ -23,6 +23,8 @@ const configPayload = z.object({
     preferences: z.record(z.string(), z.unknown()).optional(),
 });
 
+const refreshPayload = channelPayload.pick({ name: true, baseUrl: true, apiFormat: true, apiKey: true }).partial();
+
 export async function aiConfigRoutes(app: FastifyInstance) {
     app.get("/api/ai/config", { preHandler: requireAuth }, async (request) => {
         const channels = await db.select().from(aiChannels).where(eq(aiChannels.userId, request.auth!.user.id));
@@ -142,10 +144,16 @@ export async function aiConfigRoutes(app: FastifyInstance) {
 
     app.post("/api/ai/channels/:id/models/refresh", { preHandler: requireAuth }, async (request) => {
         const id = String((request.params as { id?: string }).id || "");
-        const channel = await findChannel(id, request.auth!.user.id);
-        const models = await fetchModels(channel);
-        const [updated] = await db.update(aiChannels).set({ models, updatedAt: now() }).where(and(eq(aiChannels.id, id), eq(aiChannels.userId, request.auth!.user.id))).returning();
-        return ok(maskChannel(updated));
+        const saved = id.startsWith("channel_") ? await findChannel(id, request.auth!.user.id) : undefined;
+        const draft = refreshPayload.parse(request.body || {});
+        const channel = {
+            ...(saved || { id, userId: request.auth!.user.id, models: [], createdAt: now(), updatedAt: now() }),
+            name: draft.name || saved?.name || "未保存渠道",
+            baseUrl: draft.baseUrl || saved?.baseUrl || "",
+            apiFormat: draft.apiFormat || saved?.apiFormat || "openai",
+            apiKey: draft.apiKey?.trim() || saved?.apiKey || null,
+        } as typeof aiChannels.$inferSelect;
+        return ok({ ...maskChannel(channel), models: await fetchModels(channel) });
     });
 }
 

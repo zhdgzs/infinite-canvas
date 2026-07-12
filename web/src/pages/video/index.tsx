@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Typography } from "antd";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
@@ -17,7 +17,7 @@ import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo
 import { deleteGenerationTask, listGenerationTasks, type GenerationTask } from "@/services/api/generations";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
-import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { modelOptionLabel, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -70,8 +70,9 @@ export default function VideoPage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const activeLogIdsRef = useRef<Set<string>>(new Set());
     const config = useConfigStore((state) => state.config);
-    const effectiveConfig = useEffectiveConfig();
-    const updateConfig = useConfigStore((state) => state.updateConfig);
+    const [workbenchConfig, setWorkbenchConfig] = useState(config);
+    const effectiveConfig = useMemo(() => ({ ...workbenchConfig, channelMode: "local" as const }), [workbenchConfig]);
+    const updateConfig: UpdateAiConfig = (key, value) => setWorkbenchConfig((current) => ({ ...current, [key]: value }));
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const addAsset = useAssetStore((state) => state.addAsset);
@@ -95,6 +96,10 @@ export default function VideoPage() {
     const videoCommand = useWorkbenchAgentStore((state) => state.videoCommand);
     const clearVideoCommand = useWorkbenchAgentStore((state) => state.clearVideoCommand);
     const processedCommandRef = useRef(0);
+
+    useEffect(() => {
+        setWorkbenchConfig((current) => ({ ...current, channels: config.channels, models: config.models, imageModels: config.imageModels, videoModels: config.videoModels, textModels: config.textModels, audioModels: config.audioModels, baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat }));
+    }, [config.apiFormat, config.apiKey, config.audioModels, config.baseUrl, config.channels, config.imageModels, config.models, config.textModels, config.videoModels]);
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const canGenerate = Boolean(prompt.trim());

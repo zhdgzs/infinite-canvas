@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { db } from "../db/client.js";
 import { generationTasks } from "../db/schema.js";
+import { activeStorageBackend } from "../files/storage.js";
 import { requireAuth } from "../auth/hooks.js";
 import { AppError, ok } from "../lib/api-response.js";
 import { now } from "../lib/time.js";
@@ -33,12 +34,14 @@ export async function generationRoutes(app: FastifyInstance) {
 
     app.post("/api/generations", { preHandler: requireAuth }, async (request) => {
         const body = generationPayload.parse(request.body);
+        const backend = await activeStorageBackend();
         const created = now();
         const [task] = await db
             .insert(generationTasks)
             .values({
                 id: `task_${nanoid()}`,
                 userId: request.auth!.user.id,
+                storageBackendId: backend.id,
                 kind: body.kind,
                 status: "queued",
                 prompt: body.prompt,

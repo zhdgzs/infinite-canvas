@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, ImagePlus, LoaderCircle, PenLine, Plus, SlidersHorizontal, Sparkles, Trash2, Upload } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Image, Input, Modal, Tag, Tooltip, Typography } from "antd";
 import { saveAs } from "file-saver";
 
@@ -9,7 +9,7 @@ import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
-import { modelOptionLabel, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { modelOptionLabel, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
@@ -68,8 +68,9 @@ export default function ImagePage() {
     const { message } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const config = useConfigStore((state) => state.config);
-    const effectiveConfig = useEffectiveConfig();
-    const updateConfig = useConfigStore((state) => state.updateConfig);
+    const [workbenchConfig, setWorkbenchConfig] = useState(config);
+    const effectiveConfig = useMemo(() => ({ ...workbenchConfig, channelMode: "local" as const }), [workbenchConfig]);
+    const updateConfig: UpdateAiConfig = (key, value) => setWorkbenchConfig((current) => ({ ...current, [key]: value }));
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const addAsset = useAssetStore((state) => state.addAsset);
@@ -92,9 +93,13 @@ export default function ImagePage() {
     const clearImageCommand = useWorkbenchAgentStore((state) => state.clearImageCommand);
     const processedCommandRef = useRef(0);
 
+    useEffect(() => {
+        setWorkbenchConfig((current) => ({ ...current, channels: config.channels, models: config.models, imageModels: config.imageModels, videoModels: config.videoModels, textModels: config.textModels, audioModels: config.audioModels, baseUrl: config.baseUrl, apiKey: config.apiKey, apiFormat: config.apiFormat }));
+    }, [config.apiFormat, config.apiKey, config.audioModels, config.baseUrl, config.channels, config.imageModels, config.models, config.textModels, config.videoModels]);
+
     const model = effectiveConfig.imageModel || effectiveConfig.model;
     const canGenerate = Boolean(prompt.trim());
-    const generationCount = Math.max(1, Math.min(10, Number(config.count) || 1));
+    const generationCount = Math.max(1, Math.min(10, Number(effectiveConfig.count) || 1));
 
     useEffect(() => {
         if (!running || !startedAt) return;

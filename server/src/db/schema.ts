@@ -29,6 +29,27 @@ export const sessions = pgTable(
     (table) => [index("sessions_user_id_idx").on(table.userId), index("sessions_expires_at_idx").on(table.expiresAt)],
 );
 
+export const storageBackends = pgTable(
+    "storage_backends",
+    {
+        id: text("id").primaryKey(),
+        name: text("name").notNull(),
+        type: text("type").notNull(),
+        endpoint: text("endpoint"),
+        publicEndpoint: text("public_endpoint"),
+        region: text("region"),
+        bucket: text("bucket"),
+        accessKeyId: text("access_key_id"),
+        secretAccessKey: text("secret_access_key"),
+        objectPrefix: text("object_prefix").notNull().default(""),
+        forcePathStyle: boolean("force_path_style").notNull().default(false),
+        isActive: boolean("is_active").notNull().default(false),
+        createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [index("storage_backends_active_idx").on(table.isActive)],
+);
+
 export const files = pgTable(
     "files",
     {
@@ -36,6 +57,9 @@ export const files = pgTable(
         userId: uuid("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
+        storageBackendId: text("storage_backend_id")
+            .notNull()
+            .references(() => storageBackends.id),
         kind: text("kind").notNull(),
         path: text("path").notNull().unique(),
         originalName: text("original_name"),
@@ -48,7 +72,7 @@ export const files = pgTable(
         createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
         deletedAt: timestamp("deleted_at", { withTimezone: true }),
     },
-    (table) => [index("files_user_id_idx").on(table.userId), index("files_kind_idx").on(table.kind), index("files_deleted_at_idx").on(table.deletedAt)],
+    (table) => [index("files_user_id_idx").on(table.userId), index("files_storage_backend_id_idx").on(table.storageBackendId), index("files_kind_idx").on(table.kind), index("files_deleted_at_idx").on(table.deletedAt)],
 );
 
 export const canvasProjects = pgTable(
@@ -96,6 +120,9 @@ export const generationTasks = pgTable(
         userId: uuid("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
+        storageBackendId: text("storage_backend_id")
+            .notNull()
+            .references(() => storageBackends.id),
         kind: text("kind").notNull(),
         status: text("status").notNull(),
         prompt: text("prompt").notNull().default(""),
@@ -116,7 +143,7 @@ export const generationTasks = pgTable(
         completedAt: timestamp("completed_at", { withTimezone: true }),
         deletedAt: timestamp("deleted_at", { withTimezone: true }),
     },
-    (table) => [index("generation_tasks_user_id_idx").on(table.userId), index("generation_tasks_status_idx").on(table.status), index("generation_tasks_kind_idx").on(table.kind), index("generation_tasks_created_at_idx").on(table.createdAt)],
+    (table) => [index("generation_tasks_user_id_idx").on(table.userId), index("generation_tasks_storage_backend_id_idx").on(table.storageBackendId), index("generation_tasks_status_idx").on(table.status), index("generation_tasks_kind_idx").on(table.kind), index("generation_tasks_created_at_idx").on(table.createdAt)],
 );
 
 export const aiChannels = pgTable(

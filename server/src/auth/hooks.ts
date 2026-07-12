@@ -42,6 +42,11 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply) 
     reply.setCookie(SESSION_COOKIE_NAME, request.cookies[SESSION_COOKIE_NAME] || "", sessionCookieOptions(nextExpiry));
 }
 
+export async function requireAdmin(request: FastifyRequest, reply: FastifyReply) {
+    await requireAuth(request, reply);
+    if (request.auth?.user.role !== "admin") throw new AppError(403, "仅管理员可操作实例配置", 403);
+}
+
 export function sessionCookieOptions(expires: Date) {
     return {
         path: "/",

@@ -8,16 +8,19 @@ import { AppError, ok } from "../lib/api-response.js";
 import { now } from "../lib/time.js";
 import { attachAuth, requireAuth } from "../auth/hooks.js";
 import { signFileAccessToken, verifyFileAccessToken } from "../auth/session.js";
-import { fileStat, fileStream, storeMultipartFile } from "./local-storage.js";
+import { fileStat, fileStream } from "./local-storage.js";
+import { activeStorageBackend, s3AccessUrl, storageBackendById, storeMultipartFile } from "./storage.js";
 
 export async function fileRoutes(app: FastifyInstance) {
     app.post("/api/files", { preHandler: requireAuth }, async (request) => {
         const upload = await request.file();
         if (!upload) throw new AppError(400, "请选择文件", 400);
-        const meta = await storeMultipartFile(request.auth!.user.id, upload);
+        const backend = await activeStorageBackend();
+        const meta = await storeMultipartFile(request.auth!.user.id, backend, upload);
         await db.insert(files).values({
             storageKey: meta.storageKey,
             userId: request.auth!.user.id,
+            storageBackendId: meta.storageBackendId,
             kind: meta.kind,
             path: meta.path,
             originalName: meta.originalName,
@@ -36,6 +39,15 @@ export async function fileRoutes(app: FastifyInstance) {
         const storageKey = readStorageKey(request);
         const file = await findOwnedFile(storageKey, request.auth!.user.id);
         const expiresAt = new Date(Date.now() + config.fileAccessUrlTtlSeconds * 1000);
+        const backend = await storageBackendById(file.storageBackendId);
+        if (backend.type === "s3") {
+            return ok({
+                url: await s3AccessUrl(backend, file.path, config.fileAccessUrlTtlSeconds),
+                expiresAt: expiresAt.toISOString(),
+                mimeType: file.mimeType,
+                bytes: file.bytes,
+            });
+        }
         const token = signFileAccessToken(storageKey, expiresAt);
         return ok({
             url: `/api/files/${encodeURIComponent(storageKey)}/content?token=${encodeURIComponent(token)}`,
@@ -53,6 +65,8 @@ export async function fileRoutes(app: FastifyInstance) {
         if (!tokenValid && !request.auth) throw new AppError(401, "未登录或文件链接已过期", 401);
 
         const file = tokenValid ? await findFile(storageKey) : await findOwnedFile(storageKey, request.auth!.user.id);
+        const backend = await storageBackendById(file.storageBackendId);
+        if (backend.type !== "local") throw new AppError(400, "S3 文件不能通过本地内容接口读取", 400);
         await sendFileContent(request, reply, file);
     });
 

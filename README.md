@@ -44,7 +44,7 @@
 
 ## 快速开始
 
-当前版本使用服务端持久化：画布、素材、生成记录、文件元数据、会话和 AI 配置保存在 PostgreSQL，上传和生成的媒体文件保存在 `./data/uploads`。旧浏览器本地数据不迁移，方案见 [服务端持久化方案](docs/content/docs/progress/server-backend-storage-plan.md)。
+当前版本使用服务端持久化：画布、素材、生成记录、文件元数据、会话和 AI 配置保存在 PostgreSQL。媒体文件默认保存在 `./data/uploads`，管理员也可在配置页切换到 AWS S3 或 MinIO 等 S3 兼容存储；每个文件会绑定实际写入的存储后端，因此磁盘与 S3 文件可以并存读取。方案见 [服务端持久化方案](docs/content/docs/progress/server-backend-storage-plan.md)。
 
 ### 本地开发
 
@@ -84,7 +84,9 @@ docker compose pull && docker compose up -d
 
 运行后默认端口3000，可访问 `http://localhost:3000`。
 
-首次打开后按页面提示注册第一个 admin 账号，再进入配置页添加自己的模型渠道、`Base URL`、`API Key` 和模型名。
+首次打开后按页面提示注册第一个 admin 账号，再进入配置页添加自己的模型渠道、`Base URL`、`API Key` 和模型名。配置修改只在点击页面底部“保存全部配置”后生效。
+
+如需使用 S3/MinIO，在管理员配置页打开“存储”Tab，新增后端并填写服务端 Endpoint、浏览器公开 Endpoint、Region、Bucket、Access Key、Secret Key、对象前缀和 Path-style。先点击“调试连接”验证容器到存储服务的读写删除权限，再自行打开返回的临时链接验证公开域名、TLS、签名和 CORS；调试不会创建 Bucket，保存新后端也不会自动将其设为默认。确认后选择该后端作为默认存储并保存即可，切换只影响之后写入的文件。
 
 ## New API 自动配置
 

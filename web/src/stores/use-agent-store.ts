@@ -75,7 +75,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     workspacePath: "",
     loadingThreads: false,
     activeTab: "setup",
-    confirmTools: true,
+    confirmTools: typeof window === "undefined" ? true : localStorage.getItem("canvas-agent-confirm-tools") !== "false",
     activity: "就绪",
     connectError: "",
     pendingTool: null,
@@ -100,8 +100,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         } catch {
             return set({ connectError: "Local URL 格式不正确" });
         }
-        localStorage.setItem("canvas-agent-url", endpoint);
-        localStorage.setItem("canvas-agent-token", token);
         // 只设 enabled=true，由 CanvasLocalAgentPanel 的 useEffect 统一负责开 SSE
         set({ url: endpoint, token, enabled: true, activity: "连接中", connectError: "" });
     },

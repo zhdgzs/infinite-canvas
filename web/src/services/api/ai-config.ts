@@ -30,8 +30,13 @@ export async function saveAiConfig(config: AiConfig) {
     });
 }
 
-export async function refreshAiChannelModels(channelId: string) {
-    return apiPost<RemoteAiChannel>(`/api/ai/channels/${encodeURIComponent(channelId)}/models/refresh`);
+export async function refreshAiChannelModels(channel: ModelChannel) {
+    return apiPost<RemoteAiChannel>(`/api/ai/channels/${encodeURIComponent(channel.id)}/models/refresh`, {
+        name: channel.name,
+        baseUrl: channel.baseUrl,
+        apiFormat: channel.apiFormat,
+        ...(channel.apiKey.trim() ? { apiKey: channel.apiKey.trim() } : {}),
+    });
 }
 
 function configPreferences(config: AiConfig) {

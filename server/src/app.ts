@@ -14,6 +14,7 @@ import { projectRoutes } from "./modules/projects.js";
 import { assetRoutes } from "./modules/assets.js";
 import { aiConfigRoutes } from "./modules/ai-config.js";
 import { generationRoutes } from "./modules/generations.js";
+import { storageConfigRoutes } from "./modules/storage-config.js";
 
 export async function buildApp() {
     const app = Fastify({
@@ -45,6 +46,7 @@ export async function buildApp() {
     await app.register(assetRoutes);
     await app.register(aiConfigRoutes);
     await app.register(generationRoutes);
+    await app.register(storageConfigRoutes);
 
     if (existsSync(config.webDistDir)) {
         await app.register(fastifyStatic, {

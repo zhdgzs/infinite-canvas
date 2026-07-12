@@ -96,8 +96,6 @@ export function CanvasLocalAgentPanel({ embedded, headless, autoConnect }: { emb
 
     useEffect(() => {
         if (!enabled || !token.trim()) return;
-        localStorage.setItem("canvas-agent-url", endpoint);
-        localStorage.setItem("canvas-agent-token", token);
         const clientId = clientIdRef.current;
         const source = new EventSource(`${endpoint}/events?token=${encodeURIComponent(token)}&clientId=${encodeURIComponent(clientId)}`);
         source.addEventListener("hello", () => {

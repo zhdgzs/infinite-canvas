@@ -54,7 +54,7 @@ export type WebdavSyncConfig = {
     directory: string;
     lastSyncedAt: string;
 };
-export type ConfigTabKey = "channels" | "models" | "preferences" | "webdav" | "codex";
+export type ConfigTabKey = "channels" | "models" | "preferences" | "storage" | "webdav" | "codex";
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
@@ -114,13 +114,15 @@ type ConfigStore = {
     hydrated: boolean;
     loading: boolean;
     config: AiConfig;
+    savedConfig: AiConfig;
     webdav: WebdavSyncConfig;
     isConfigOpen: boolean;
     configTab: ConfigTabKey;
     shouldPromptContinue: boolean;
     loadConfig: () => Promise<void>;
     clearConfig: () => void;
-    saveConfigNow: () => Promise<void>;
+    saveConfigDraft: (config: AiConfig) => Promise<void>;
+    discardConfigChanges: () => void;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
@@ -179,6 +181,7 @@ export const useConfigStore = create<ConfigStore>()(
         hydrated: false,
         loading: false,
         config: normalizeConfig(defaultConfig),
+        savedConfig: normalizeConfig(defaultConfig),
         webdav: defaultWebdavSyncConfig,
         isConfigOpen: false,
         configTab: "channels",
@@ -187,22 +190,23 @@ export const useConfigStore = create<ConfigStore>()(
             if (get().loading) return;
             set({ loading: true });
             try {
-                set({ config: configFromRemote(await fetchAiConfig()), hydrated: true });
+                const config = configFromRemote(await fetchAiConfig());
+                set({ config, savedConfig: config, hydrated: true });
             } finally {
                 set({ loading: false });
             }
         },
         clearConfig: () => {
-            clearConfigSaveTimer();
-            set({ hydrated: false, loading: false, config: normalizeConfig(defaultConfig) });
+            set({ hydrated: false, loading: false, config: normalizeConfig(defaultConfig), savedConfig: normalizeConfig(defaultConfig) });
         },
-        saveConfigNow: async () => {
-            clearConfigSaveTimer();
-            await saveCurrentConfig();
+        saveConfigDraft: async (draft) => {
+            const remote = await saveAiConfig(draft);
+            const config = mergeRemoteConfig(remote, draft);
+            set({ config, savedConfig: config });
         },
+        discardConfigChanges: () => set((state) => ({ config: state.savedConfig })),
         updateConfig: (key, value) => {
             set((state) => ({ config: normalizeConfig({ ...state.config, [key]: value }) }));
-            scheduleConfigSave();
         },
         updateWebdavConfig: (key, value) =>
             set((state) => ({
@@ -301,27 +305,6 @@ export function resolveModelRequestConfig(config: AiConfig, value: string) {
         apiKey: channel.apiKey,
         apiFormat: channel.apiFormat,
     };
-}
-
-let configSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
-function scheduleConfigSave() {
-    clearConfigSaveTimer();
-    configSaveTimer = setTimeout(() => {
-        configSaveTimer = null;
-        void saveCurrentConfig().catch(() => undefined);
-    }, 700);
-}
-
-function clearConfigSaveTimer() {
-    if (configSaveTimer) clearTimeout(configSaveTimer);
-    configSaveTimer = null;
-}
-
-async function saveCurrentConfig() {
-    const current = useConfigStore.getState().config;
-    const remote = await saveAiConfig(current);
-    useConfigStore.setState({ config: mergeRemoteConfig(remote, current) });
 }
 
 function configFromRemote(remote: RemoteAiConfig) {

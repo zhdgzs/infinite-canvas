@@ -1,13 +1,16 @@
-import { App, Button, Form, Input, Modal, Progress, Select, Switch, Tabs } from "antd";
-import { CircleAlert, Cloud, KeyRound, Link2, Plus, RefreshCw, ShieldCheck, Trash2, Wifi } from "lucide-react";
-import { useEffect, useState } from "react";
+import { App, Button, Collapse, Form, Input, Modal, Progress, Segmented, Select, Switch, Tabs } from "antd";
+import { CircleAlert, Cloud, ExternalLink, HardDrive, KeyRound, Link2, Plus, RefreshCw, Save, ShieldCheck, Trash2, Wifi } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useBlocker } from "react-router-dom";
 
 import { ModelPicker } from "@/components/model-picker";
 import { refreshAiChannelModels } from "@/services/api/ai-config";
+import { debugStorageBackend, fetchStorageConfig, saveStorageConfig, type S3BackendDraft, type StorageConfig } from "@/services/api/storage-config";
 import { syncAppDataToWebdav, type AppSyncDomainKey, type AppSyncProgressEvent } from "@/services/app-sync";
 import { testWebdavConnection, WEBDAV_MANIFEST_FILE_NAME } from "@/services/webdav-sync";
 import { audioFormatOptions, audioVoiceOptions, normalizeAudioSpeedValue } from "@/lib/audio-generation";
 import { useAgentStore } from "@/stores/use-agent-store";
+import { useAuthStore } from "@/stores/use-auth-store";
 import { createModelChannel, defaultBaseUrlForApiFormat, filterModelsByCapability, modelOptionLabel, modelOptionsFromChannels, normalizeModelOptionValue, useConfigStore, type AiConfig, type ApiCallFormat, type ConfigTabKey, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 
 type ModelGroup = {
@@ -66,7 +69,7 @@ function visibleConfigTab(tab: ConfigTabKey): ConfigTabKey {
     return hiddenConfigTabs.has(tab) ? "channels" : tab;
 }
 
-export function AppConfigPanel({ showDoneButton = false, initialTab = "channels" }: { showDoneButton?: boolean; initialTab?: ConfigTabKey }) {
+export function AppConfigPanel({ showDoneButton = false, initialTab = "channels", onDirtyChange }: { showDoneButton?: boolean; initialTab?: ConfigTabKey; onDirtyChange?: (dirty: boolean) => void }) {
     const { message } = App.useApp();
     const [activeTab, setActiveTab] = useState<ConfigTabKey>(visibleConfigTab(initialTab));
     const [loadingChannelId, setLoadingChannelId] = useState("");
@@ -74,13 +77,20 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const [syncingWebdav, setSyncingWebdav] = useState(false);
     const [webdavSyncStatus, setWebdavSyncStatus] = useState("");
     const [webdavDomainProgress, setWebdavDomainProgress] = useState(createWebdavDomainProgress);
-    const config = useConfigStore((state) => state.config);
+    const [storage, setStorage] = useState<StorageConfig | null>(null);
+    const [savedStorage, setSavedStorage] = useState<StorageConfig | null>(null);
+    const [deletedStorageIds, setDeletedStorageIds] = useState<string[]>([]);
+    const [saving, setSaving] = useState(false);
+    const [debuggingStorageId, setDebuggingStorageId] = useState("");
+    const [debugUrl, setDebugUrl] = useState("");
+    const runtimeConfig = useConfigStore((state) => state.config);
+    const savedConfig = useConfigStore((state) => state.savedConfig);
+    const [config, setConfig] = useState(runtimeConfig);
     const webdav = useConfigStore((state) => state.webdav);
-    const updateConfig = useConfigStore((state) => state.updateConfig);
     const updateWebdavConfig = useConfigStore((state) => state.updateWebdavConfig);
-    const saveConfigNow = useConfigStore((state) => state.saveConfigNow);
+    const saveConfigDraft = useConfigStore((state) => state.saveConfigDraft);
+    const discardConfigChanges = useConfigStore((state) => state.discardConfigChanges);
     const shouldPromptContinue = useConfigStore((state) => state.shouldPromptContinue);
-    const setConfigDialogOpen = useConfigStore((state) => state.setConfigDialogOpen);
     const clearPromptContinue = useConfigStore((state) => state.clearPromptContinue);
     const agentUrl = useAgentStore((state) => state.url);
     const agentToken = useAgentStore((state) => state.token);
@@ -89,24 +99,100 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const agentActivity = useAgentStore((state) => state.activity);
     const agentConnectError = useAgentStore((state) => state.connectError);
     const agentConfirmTools = useAgentStore((state) => state.confirmTools);
+    const user = useAuthStore((state) => state.user);
     const setAgentState = useAgentStore((state) => state.setAgentState);
     const connectAgent = useAgentStore((state) => state.connectAgent);
     const disconnectAgent = useAgentStore((state) => state.disconnectAgent);
     const modelOptions = config.models.map((model) => ({ label: modelOptionLabel(config, model), value: model }));
     const webdavReady = Boolean(webdav.url.trim());
+    const [savedAgent, setSavedAgent] = useState(() => ({ url: agentUrl, token: agentToken, confirmTools: agentConfirmTools }));
+    const isAdmin = user?.role === "admin";
+    const dirty = useMemo(
+        () => JSON.stringify(config) !== JSON.stringify(savedConfig) || JSON.stringify(storage) !== JSON.stringify(savedStorage) || agentUrl !== savedAgent.url || agentToken !== savedAgent.token || agentConfirmTools !== savedAgent.confirmTools,
+        [agentConfirmTools, agentToken, agentUrl, config, savedAgent, savedConfig, savedStorage, storage],
+    );
+    const blocker = useBlocker(dirty);
     useEffect(() => setActiveTab(visibleConfigTab(initialTab)), [initialTab]);
+    useEffect(() => setConfig(runtimeConfig), [runtimeConfig]);
+    useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
+    useEffect(() => {
+        if (!isAdmin) return;
+        void fetchStorageConfig().then((value) => {
+            setStorage(value);
+            setSavedStorage(value);
+        }).catch((error) => message.error(error instanceof Error ? error.message : "读取存储配置失败"));
+    }, [isAdmin, message]);
+    useEffect(() => {
+        const guard = (event: BeforeUnloadEvent) => {
+            if (!dirty) return;
+            event.preventDefault();
+        };
+        window.addEventListener("beforeunload", guard);
+        return () => window.removeEventListener("beforeunload", guard);
+    }, [dirty]);
 
     const saveConfig = (nextConfig: AiConfig) => {
-        (Object.keys(nextConfig) as Array<keyof AiConfig>).forEach((key) => updateConfig(key, nextConfig[key]));
+        setConfig(nextConfig);
     };
 
-    const finishConfig = () => {
-        const ready = config.channels.some((channel) => channel.baseUrl.trim() && (channel.apiKey.trim() || channel.hasApiKey) && channel.models.length);
-        setConfigDialogOpen(false);
-        if (!ready) return;
+    const updateConfig = <K extends keyof AiConfig,>(key: K, value: AiConfig[K]) => setConfig((current) => ({ ...current, [key]: value }));
+
+    const saveAllConfig = async () => {
+        setSaving(true);
+        const failures: string[] = [];
+        try {
+            await saveConfigDraft(config);
+        } catch (error) {
+            failures.push(`AI 配置：${error instanceof Error ? error.message : "保存失败"}`);
+        }
+        if (isAdmin && storage) {
+            try {
+                const saved = await saveStorageConfig(storage.activeBackendId, storage.backends.filter((item) => item.type === "s3") as S3BackendDraft[], deletedStorageIds);
+                setStorage(saved);
+                setSavedStorage(saved);
+                setDeletedStorageIds([]);
+            } catch (error) {
+                failures.push(`存储配置：${error instanceof Error ? error.message : "保存失败"}`);
+            }
+        }
+        try {
+            const normalizedUrl = agentUrl.trim().replace(/\/$/, "");
+            localStorage.setItem("canvas-agent-url", normalizedUrl);
+            localStorage.setItem("canvas-agent-token", agentToken);
+            localStorage.setItem("canvas-agent-confirm-tools", String(agentConfirmTools));
+            setAgentState({ url: normalizedUrl });
+            setSavedAgent({ url: normalizedUrl, token: agentToken, confirmTools: agentConfirmTools });
+        } catch (error) {
+            failures.push(`Codex 配置：${error instanceof Error ? error.message : "保存失败"}`);
+        }
+        setSaving(false);
+        if (failures.length) return message.error(failures.join("；"));
         message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
         clearPromptContinue();
     };
+
+    const discardChanges = () => {
+        discardConfigChanges();
+        setConfig(savedConfig);
+        setStorage(savedStorage);
+        setDeletedStorageIds([]);
+        setAgentState({ ...savedAgent, connectError: "" });
+    };
+    useEffect(() => {
+        if (blocker.state !== "blocked") return;
+        Modal.confirm({
+            title: "放弃未保存的修改？",
+            content: "离开配置页面后，本次尚未保存的修改将丢失。",
+            okText: "放弃并离开",
+            cancelText: "继续编辑",
+            okButtonProps: { danger: true },
+            onOk: () => {
+                discardChanges();
+                blocker.proceed();
+            },
+            onCancel: () => blocker.reset(),
+        });
+    }, [blocker.state]);
 
     const updateChannels = (channels: ModelChannel[]) => {
         const nextConfig = withChannels(config, channels);
@@ -141,12 +227,9 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
         }
         setLoadingChannelId(channel.id);
         try {
-            await saveConfigNow();
-            const latest = useConfigStore.getState().config.channels.find((item) => item.id === channel.id || item.name === channel.name);
-            if (!latest) throw new Error("渠道保存失败");
-            const remote = await refreshAiChannelModels(latest.id);
-            updateChannels(useConfigStore.getState().config.channels.map((item) => (item.id === latest.id ? { ...item, models: remote.models, hasApiKey: remote.hasApiKey, apiKeyMasked: remote.apiKeyMasked } : item)));
-            message.success(`${latest.name} 模型列表已更新`);
+            const remote = await refreshAiChannelModels(channel);
+            updateChannels(config.channels.map((item) => (item.id === channel.id ? { ...item, models: remote.models, hasApiKey: remote.hasApiKey, apiKeyMasked: remote.apiKeyMasked } : item)));
+            message.success(`${channel.name} 模型列表已更新`);
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
         } finally {
@@ -157,16 +240,14 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
     const refreshAllModels = async () => {
         setLoadingChannelId("all");
         try {
-            await saveConfigNow();
-            const latestConfig = useConfigStore.getState().config;
-            const runnable = latestConfig.channels.filter((channel) => channel.baseUrl.trim() && (channel.apiKey.trim() || channel.hasApiKey));
+            const runnable = config.channels.filter((channel) => channel.baseUrl.trim() && (channel.apiKey.trim() || channel.hasApiKey));
             if (!runnable.length) {
                 message.error("请先填写至少一个渠道的 Base URL 和 API Key");
                 return;
             }
-            const entries = await Promise.all(runnable.map(async (channel) => [channel.id, await refreshAiChannelModels(channel.id)] as const));
+            const entries = await Promise.all(runnable.map(async (channel) => [channel.id, await refreshAiChannelModels(channel)] as const));
             const modelMap = new Map(entries);
-            updateChannels(latestConfig.channels.map((channel) => (modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id)?.models || [], hasApiKey: modelMap.get(channel.id)?.hasApiKey, apiKeyMasked: modelMap.get(channel.id)?.apiKeyMasked } : channel)));
+            updateChannels(config.channels.map((channel) => (modelMap.has(channel.id) ? { ...channel, models: modelMap.get(channel.id)?.models || [], hasApiKey: modelMap.get(channel.id)?.hasApiKey, apiKeyMasked: modelMap.get(channel.id)?.apiKeyMasked } : channel)));
             message.success("模型列表已更新");
         } catch (error) {
             message.error(error instanceof Error ? error.message : "读取模型失败");
@@ -234,8 +315,37 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
 
     const updateAgentConfig = (patch: { url?: string; token?: string }) => {
         setAgentState({ ...patch, connectError: "" });
-        if (patch.url !== undefined) localStorage.setItem("canvas-agent-url", patch.url.trim().replace(/\/$/, ""));
-        if (patch.token !== undefined) localStorage.setItem("canvas-agent-token", patch.token);
+    };
+
+    const updateStorageBackend = (id: string, patch: Partial<S3BackendDraft>) => {
+        setStorage((current) => current ? { ...current, backends: current.backends.map((item) => item.id === id ? { ...item, ...patch } : item) } : current);
+    };
+
+    const addStorageBackend = () => {
+        const id = `draft_${Date.now()}`;
+        setStorage((current) => current ? {
+            ...current,
+            backends: [...current.backends, { id, name: `S3 后端 ${current.backends.filter((item) => item.type === "s3").length + 1}`, type: "s3", endpoint: "", publicEndpoint: "", region: "us-east-1", bucket: "", accessKeyId: "", secretAccessKey: "", objectPrefix: "", forcePathStyle: true, isActive: false, hasSecretAccessKey: false, secretAccessKeyMasked: "", fileCount: 0, isIdentityLocked: false }],
+        } : current);
+    };
+
+    const deleteStorageBackend = (id: string) => {
+        setStorage((current) => current ? { ...current, backends: current.backends.filter((item) => item.id !== id) } : current);
+        if (!id.startsWith("draft_")) setDeletedStorageIds((current) => [...new Set([...current, id])]);
+    };
+
+    const testStorageBackend = async (backend: StorageConfig["backends"][number]) => {
+        setDebuggingStorageId(backend.id);
+        setDebugUrl("");
+        try {
+            const result = await debugStorageBackend(backend as S3BackendDraft);
+            setDebugUrl(result.url);
+            message.success("服务端连接、写入和读取测试成功，请打开临时链接验证公开地址");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "S3 调试失败");
+        } finally {
+            setDebuggingStorageId("");
+        }
     };
 
     const toggleAgentConnection = () => (agentEnabled ? disconnectAgent({ connectError: "" }) : connectAgent());
@@ -434,6 +544,71 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                         ),
                     },
                     {
+                        key: "storage",
+                        label: "存储",
+                        children: isAdmin ? (
+                            <Form layout="vertical" requiredMark={false}>
+                                <section className="mb-4 border-b border-stone-200 pb-4 dark:border-stone-800">
+                                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><HardDrive className="size-4" />默认文件存储</div>
+                                    <Segmented
+                                        value={storage?.activeBackendId === "local" ? "local" : "s3"}
+                                        options={[{ label: "本地磁盘", value: "local" }, { label: "S3 / MinIO", value: "s3" }]}
+                                        onChange={(value) => {
+                                            if (!storage) return;
+                                            if (value === "local") return setStorage({ ...storage, activeBackendId: "local" });
+                                            const first = storage.backends.find((item) => item.type === "s3" && !item.id.startsWith("draft_"));
+                                            if (!first) return message.warning("请先新增并保存一个 S3 后端，再将其设为默认");
+                                            setStorage({ ...storage, activeBackendId: first.id });
+                                        }}
+                                    />
+                                    <Form.Item label="本地磁盘目录" className="mb-0 mt-4" extra="由 UPLOAD_DIR 和 Docker volume 管理，页面不可修改。">
+                                        <Input readOnly value={storage?.localUploadDir || "正在读取..."} />
+                                    </Form.Item>
+                                    {storage && storage.activeBackendId !== "local" ? (
+                                        <Form.Item label="默认 S3 后端" className="mb-0 mt-4">
+                                            <Select value={storage.activeBackendId} options={storage.backends.filter((item) => item.type === "s3" && !item.id.startsWith("draft_")).map((item) => ({ value: item.id, label: item.name }))} onChange={(activeBackendId) => setStorage({ ...storage, activeBackendId })} />
+                                        </Form.Item>
+                                    ) : null}
+                                </section>
+                                <div className="mb-3 flex items-center justify-between gap-3">
+                                    <div><div className="text-sm font-semibold">S3 兼容后端</div><div className="mt-1 text-xs text-stone-500">支持 AWS S3 与 MinIO。新增后端保存后不会自动成为默认。</div></div>
+                                    <Button icon={<Plus className="size-4" />} onClick={addStorageBackend}>新增后端</Button>
+                                </div>
+                                <Collapse
+                                    items={(storage?.backends || []).filter((item) => item.type === "s3").map((backend) => {
+                                        const identityLocked = backend.isIdentityLocked;
+                                        return {
+                                            key: backend.id,
+                                            label: <div className="flex min-w-0 items-center gap-2"><span className="truncate font-medium">{backend.name}</span><span className="text-xs text-stone-500">{backend.bucket || "未配置 Bucket"} · {backend.fileCount} 个文件{backend.id === storage?.activeBackendId ? " · 当前默认" : ""}</span></div>,
+                                            children: (
+                                                <div>
+                                                    <div className="grid gap-4 md:grid-cols-2">
+                                                        <Form.Item label="后端名称" className="mb-0"><Input value={backend.name} onChange={(event) => updateStorageBackend(backend.id, { name: event.target.value })} /></Form.Item>
+                                                        <Form.Item label="Region" className="mb-0"><Input value={backend.region || ""} placeholder="us-east-1" onChange={(event) => updateStorageBackend(backend.id, { region: event.target.value })} /></Form.Item>
+                                                        <Form.Item label="服务端 Endpoint" className="mb-0"><Input value={backend.endpoint || ""} placeholder="http://minio:9000" onChange={(event) => updateStorageBackend(backend.id, { endpoint: event.target.value })} /></Form.Item>
+                                                        <Form.Item label="浏览器公开 Endpoint" className="mb-0" extra="调试成功后由你打开临时链接验证，服务端不会请求此地址。"><Input value={backend.publicEndpoint || ""} placeholder="https://s3.example.com" onChange={(event) => updateStorageBackend(backend.id, { publicEndpoint: event.target.value })} /></Form.Item>
+                                                        <Form.Item label="Bucket" className="mb-0"><Input disabled={identityLocked} value={backend.bucket || ""} onChange={(event) => updateStorageBackend(backend.id, { bucket: event.target.value })} /></Form.Item>
+                                                        <Form.Item label="对象前缀" className="mb-0"><Input disabled={identityLocked} value={backend.objectPrefix || ""} placeholder="infinite-canvas" onChange={(event) => updateStorageBackend(backend.id, { objectPrefix: event.target.value })} /></Form.Item>
+                                                        <Form.Item label="Access Key" className="mb-0"><Input value={backend.accessKeyId || ""} onChange={(event) => updateStorageBackend(backend.id, { accessKeyId: event.target.value })} /></Form.Item>
+                                                        <Form.Item label="Secret Key" className="mb-0"><Input.Password value={backend.secretAccessKey || ""} placeholder={backend.secretAccessKeyMasked || "Secret Key"} onChange={(event) => updateStorageBackend(backend.id, { secretAccessKey: event.target.value })} /></Form.Item>
+                                                    </div>
+                                                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 pt-4 dark:border-stone-800">
+                                                        <div className="flex items-center gap-2"><Switch checked={backend.forcePathStyle} onChange={(forcePathStyle) => updateStorageBackend(backend.id, { forcePathStyle })} /><span className="text-sm">Path-style</span></div>
+                                                        <div className="flex gap-2">
+                                                            <Button icon={<Wifi className="size-4" />} loading={debuggingStorageId === backend.id} onClick={() => void testStorageBackend(backend)}>调试连接</Button>
+                                                            <Button danger icon={<Trash2 className="size-4" />} disabled={identityLocked || backend.id === storage?.activeBackendId} onClick={() => deleteStorageBackend(backend.id)}>删除</Button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ),
+                                        };
+                                    })}
+                                />
+                                {debugUrl ? <div className="mt-4 flex items-center gap-2 border-t border-stone-200 pt-4 dark:border-stone-800"><Input readOnly value={debugUrl} /><Button icon={<ExternalLink className="size-4" />} onClick={() => window.open(debugUrl, "_blank", "noopener,noreferrer")}>打开临时链接</Button></div> : null}
+                            </Form>
+                        ) : null,
+                    },
+                    {
                         key: "codex",
                         label: "Codex",
                         children: (
@@ -494,15 +669,12 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
                             </Form>
                         ),
                     },
-                ].filter((item) => !hiddenConfigTabs.has(item.key as ConfigTabKey))}
+                ].filter((item) => !hiddenConfigTabs.has(item.key as ConfigTabKey) && (item.key !== "storage" || isAdmin))}
             />
-            {showDoneButton ? (
-                <div className="mt-4 flex justify-end">
-                    <Button type="primary" onClick={finishConfig}>
-                        完成
-                    </Button>
-                </div>
-            ) : null}
+            <div className="sticky bottom-0 mt-4 flex justify-end gap-2 border-t border-stone-200 bg-background py-3 dark:border-stone-800">
+                {dirty ? <Button onClick={discardChanges}>放弃修改</Button> : null}
+                <Button type="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={() => void saveAllConfig()}>{showDoneButton ? "保存" : "保存全部配置"}</Button>
+            </div>
         </>
     );
 }
@@ -511,6 +683,24 @@ export function AppConfigModal() {
     const isConfigOpen = useConfigStore((state) => state.isConfigOpen);
     const configTab = useConfigStore((state) => state.configTab);
     const setConfigDialogOpen = useConfigStore((state) => state.setConfigDialogOpen);
+    const discardConfigChanges = useConfigStore((state) => state.discardConfigChanges);
+    const [dirty, setDirty] = useState(false);
+    const close = () => {
+        if (!dirty) return setConfigDialogOpen(false);
+        Modal.confirm({
+            title: "放弃未保存的修改？",
+            content: "关闭后，本次尚未保存的配置修改将丢失。",
+            okText: "放弃修改",
+            cancelText: "继续编辑",
+            okButtonProps: { danger: true },
+            onOk: () => {
+                discardConfigChanges();
+                setAgentStateFromStorage();
+                setDirty(false);
+                setConfigDialogOpen(false);
+            },
+        });
+    };
     return (
         <Modal
             title={
@@ -522,13 +712,23 @@ export function AppConfigModal() {
             open={isConfigOpen}
             width={980}
             centered
-            onCancel={() => setConfigDialogOpen(false)}
+            destroyOnHidden
+            onCancel={close}
             styles={{ body: { maxHeight: "72vh", overflowY: "auto", paddingRight: 12 } }}
             footer={null}
         >
-            <AppConfigPanel showDoneButton initialTab={configTab} />
+            <AppConfigPanel showDoneButton initialTab={configTab} onDirtyChange={setDirty} />
         </Modal>
     );
+}
+
+function setAgentStateFromStorage() {
+    useAgentStore.setState({
+        url: localStorage.getItem("canvas-agent-url") || "http://127.0.0.1:17371",
+        token: localStorage.getItem("canvas-agent-token") || "",
+        confirmTools: localStorage.getItem("canvas-agent-confirm-tools") !== "false",
+        connectError: "",
+    });
 }
 
 function withChannels(config: AiConfig, channels: ModelChannel[]): AiConfig {
