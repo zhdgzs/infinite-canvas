@@ -15,6 +15,12 @@ cd infinite-canvas
 docker compose up -d
 ```
 
+`docker-compose.yml` 已配置 `pull_policy: always`，每次启动都会检查并拉取最新镜像。更新时可显式执行：
+
+```bash
+docker compose pull && docker compose up -d
+```
+
 启动后访问：
 
 ```text

@@ -17,6 +17,7 @@ services:
 
   server:
     image: ghcr.io/zhdgzs/infinite-canvas:latest
+    pull_policy: always
     container_name: infinite-canvas
     environment:
       DATABASE_URL: postgres://infinite_canvas:infinite_canvas@postgres:5432/infinite_canvas

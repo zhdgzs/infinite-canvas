@@ -5,7 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
-- Docker 部署：生产 `docker-compose.yml` 改为拉取 `ghcr.io/zhdgzs/infinite-canvas:latest`，不再执行本地构建；需验证 `docker compose pull && docker compose up -d` 可完成镜像更新。
+- Docker 部署：生产 `docker-compose.yml` 改为拉取 `ghcr.io/zhdgzs/infinite-canvas:latest`，并通过 `pull_policy: always` 在启动时强制检查镜像更新；需验证 `docker compose pull && docker compose up -d` 可完成镜像更新。
 - Remote Docker skill：工作区干净时会根据当前版本以来的实际改动自行判断大小更新，随后更新 `VERSION`、提交并推送；需实际调用验证危险操作确认、远端同步保护，以及应用 Docker 镜像 workflow 成功发布版本号和 `latest` 标签。
 - 服务端持久化基础：新增 Fastify 后端、PostgreSQL 表结构、登录会话、磁盘文件访问、Docker 镜像和 Compose；已通过自动化 Docker/Postgres/API 验证，仍需在实际部署目录验证备份和反代配置。
 - 服务端持久化前端接入：画布项目、素材库、文件上传/访问和 AI 配置已改为走服务端 API；需人工验证登录后跨设备数据一致、媒体节点保存后只保留 `storageKey`、模型列表刷新由后端执行且浏览器不再落完整 API Key。

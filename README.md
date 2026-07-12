@@ -64,6 +64,12 @@ cd infinite-canvas
 docker compose up -d
 ```
 
+更新时运行：
+
+```bash
+docker compose pull && docker compose up -d
+```
+
 运行后默认端口3000，可访问 `http://localhost:3000`。
 
 首次打开后按页面提示注册第一个 admin 账号，再进入配置页添加自己的模型渠道、`Base URL`、`API Key` 和模型名。
