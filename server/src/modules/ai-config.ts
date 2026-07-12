@@ -171,8 +171,13 @@ function maskApiKey(value: string) {
 
 async function fetchModels(channel: typeof aiChannels.$inferSelect) {
     if (!channel.apiKey) throw new AppError(400, "请先配置 API Key", 400);
-    if (channel.apiFormat === "gemini") return fetchGeminiModels(channel);
-    return fetchOpenAiModels(channel);
+    try {
+        if (channel.apiFormat === "gemini") return await fetchGeminiModels(channel);
+        return await fetchOpenAiModels(channel);
+    } catch (error) {
+        if (error instanceof AppError) throw error;
+        throw new AppError(502, `读取模型列表失败：${requestErrorMessage(error)}`, 502);
+    }
 }
 
 async function fetchOpenAiModels(channel: typeof aiChannels.$inferSelect) {
@@ -198,4 +203,9 @@ function buildApiUrl(baseUrl: string, path: string) {
     const lower = normalized.toLowerCase();
     const apiBase = lower.endsWith("/v1") || lower.endsWith("/api/v3") || lower.endsWith("/api/plan/v3") ? normalized : `${normalized}/v1`;
     return `${apiBase}${path}`;
+}
+
+function requestErrorMessage(error: unknown) {
+    if (!(error instanceof Error)) return "未知错误";
+    return error.cause instanceof Error ? error.cause.message : error.message;
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { tmpdir } from "node:os";
@@ -34,7 +34,7 @@ export async function storeMultipartFile(userId: string, file: MultipartFile): P
         const relativePath = `${userId}/${String(now.getFullYear())}/${String(now.getMonth() + 1).padStart(2, "0")}/${storageKey}.${ext}`;
         const finalPath = join(config.uploadDir, relativePath);
         await mkdir(dirname(finalPath), { recursive: true });
-        await rename(tempPath, finalPath);
+        await moveTempFile(tempPath, finalPath);
         const meta = await readMediaMetadata(finalPath, kind);
         return {
             storageKey,
@@ -92,4 +92,14 @@ export function fileStream(relativePath: string, options?: { start?: number; end
 function assertSizeLimit(kind: StoredFileMeta["kind"], bytes: number) {
     const maxMb = config.uploadLimitsMb[kind];
     if (bytes > maxMb * 1024 * 1024) throw new Error(`${kind} 文件不能超过 ${maxMb}MB`);
+}
+
+async function moveTempFile(tempPath: string, finalPath: string) {
+    try {
+        await rename(tempPath, finalPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+        await copyFile(tempPath, finalPath);
+        await rm(tempPath, { force: true });
+    }
 }

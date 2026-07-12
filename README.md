@@ -49,7 +49,7 @@
 ### 本地开发
 
 ```bash
-git clone git@github.com:basketikun/infinite-canvas.git
+git clone git@github.com:zhdgzs/infinite-canvas.git
 cd infinite-canvas
 cd web
 bun install
@@ -59,8 +59,20 @@ bun run dev
 ### Docker 运行
 
 ```bash
-git clone git@github.com:basketikun/infinite-canvas.git
+git clone git@github.com:zhdgzs/infinite-canvas.git
 cd infinite-canvas
+openssl rand -base64 32
+```
+
+将命令输出填入 `docker-compose.yml` 的 `SESSION_SECRET`，替换默认的 `change-me-use-openssl-rand-base64-32`。例如：
+
+```yaml
+SESSION_SECRET: 生成的随机值
+```
+
+然后启动：
+
+```bash
 docker compose up -d
 ```
 
