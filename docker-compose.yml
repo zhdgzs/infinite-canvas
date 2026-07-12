@@ -16,11 +16,8 @@ services:
       retries: 5
 
   server:
-    image: infinite-canvas:latest
+    image: ghcr.io/zhdgzs/infinite-canvas:latest
     container_name: infinite-canvas
-    build:
-      context: .
-      dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgres://infinite_canvas:infinite_canvas@postgres:5432/infinite_canvas
       SESSION_SECRET: change-me-use-openssl-rand-base64-32

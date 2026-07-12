@@ -2,6 +2,7 @@
 
 ## Unreleased
 
++ [调整] 生产 Docker Compose 改为拉取 GHCR `latest` 镜像，不再本地构建应用镜像。
 + [新增] 新增 `remote-docker` skill，可检查仓库状态、自动判断更新级别、升级版本并推送触发远程发布。
 + [调整] 推送到主分支后仅自动发布应用 Docker 镜像，不再创建 GitHub Release、文档镜像或 GitHub Pages 发布任务。
 + [新增] 新增服务端持久化方案文档和后端基础服务骨架。
