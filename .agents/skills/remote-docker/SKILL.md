@@ -1,6 +1,6 @@
 ---
 name: remote-docker
-description: Inspect a clean Git repository, determine whether unreleased changes are a small or large update, increment the VERSION file, commit the release version, and push the current branch so GitHub Actions publishes the Docker image. Use when the user asks to run remote-docker, publish or release the current repository through its remote Docker workflow, or automatically version and push a completed clean worktree.
+description: Inspect a clean Git repository, reconcile release notes, determine whether unreleased changes are a small or large update, increment the VERSION file, commit the release version, and push the current branch so GitHub Actions publishes the Docker image. Use when the user asks to run remote-docker, publish or release the current repository through its remote Docker workflow, or automatically version and push a completed clean worktree.
 ---
 
 # Remote Docker
@@ -31,10 +31,14 @@ Publish a completed clean repository through its existing push-triggered Docker 
    - Any pre-1.0 current version becomes `v1.0.0` on the first run.
    - Small update increments the third position: `v1.0.0` -> `v1.0.1`.
    - Large update increments the second position and resets the third: `v1.0.1` -> `v1.1.0`.
-9. Before editing, committing, or pushing, show one explicit dangerous-operation confirmation using the project's required format. Include the classification evidence, old/new versions, branch, remote, commit message, and the fact that pushing triggers remote publication. Continue only after an explicit confirmation.
-10. Update `VERSION` to the new version with a trailing newline. Do not modify unrelated files or automatically rewrite the changelog.
-11. Stage only `VERSION`, commit with `chore: release <version>`, then push with `git push origin <branch>`.
-12. Report the new version, commit hash, pushed branch, remote, and Docker image name. Do not create a Git tag or GitHub Release locally; the push-triggered Docker workflow owns image publication.
+9. Before editing, committing, or pushing, show one explicit dangerous-operation confirmation using the project's required format. Include the classification evidence, old/new versions, branch, remote, commit message, the automatic changelog synchronization, and the fact that pushing triggers remote publication. Continue only after an explicit confirmation. Do not ask for a separate confirmation to update `CHANGELOG.md`.
+10. Synchronize `CHANGELOG.md` from the inspected release history before the release commit:
+   - Ensure `## Unreleased` exists and contains concise `[新增]` / `[调整]` / `[修复]` / `[优化]` entries that cover user-visible unreleased changes. If it is absent or does not cover the inspected changes, add the missing entries based on the Git history.
+   - Move the completed `Unreleased` entries into `## <next version> - <YYYY-MM-DD>` using the local date, then retain an empty `## Unreleased` heading.
+   - Do not rewrite already released version sections unless they are malformed or conflict with the reachable release history.
+11. Update `VERSION` to the new version with a trailing newline.
+12. Stage only `VERSION` and `CHANGELOG.md`, commit with `chore: release <version>`, then push with `git push origin <branch>`.
+13. Report the new version, commit hash, pushed branch, remote, and Docker image name. Do not create a Git tag or GitHub Release locally; the push-triggered Docker workflow owns image publication.
 
 ## Safety Rules
 
