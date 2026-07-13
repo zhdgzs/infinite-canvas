@@ -69,7 +69,7 @@ function visibleConfigTab(tab: ConfigTabKey): ConfigTabKey {
     return hiddenConfigTabs.has(tab) ? "channels" : tab;
 }
 
-export function AppConfigPanel({ showDoneButton = false, initialTab = "channels", onDirtyChange }: { showDoneButton?: boolean; initialTab?: ConfigTabKey; onDirtyChange?: (dirty: boolean) => void }) {
+export function AppConfigPanel({ initialTab = "channels", onDirtyChange }: { initialTab?: ConfigTabKey; onDirtyChange?: (dirty: boolean) => void }) {
     const { message } = App.useApp();
     const [activeTab, setActiveTab] = useState<ConfigTabKey>(visibleConfigTab(initialTab));
     const [loadingChannelId, setLoadingChannelId] = useState("");
@@ -673,7 +673,7 @@ export function AppConfigPanel({ showDoneButton = false, initialTab = "channels"
             />
             <div className="sticky bottom-0 mt-4 flex justify-end gap-2 border-t border-stone-200 bg-background py-3 dark:border-stone-800">
                 {dirty ? <Button onClick={discardChanges}>放弃修改</Button> : null}
-                <Button type="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={() => void saveAllConfig()}>{showDoneButton ? "保存" : "保存全部配置"}</Button>
+                <Button type="primary" icon={<Save className="size-4" />} loading={saving} disabled={!dirty} onClick={() => void saveAllConfig()}>保存</Button>
             </div>
         </>
     );
@@ -717,7 +717,7 @@ export function AppConfigModal() {
             styles={{ body: { maxHeight: "72vh", overflowY: "auto", paddingRight: 12 } }}
             footer={null}
         >
-            <AppConfigPanel showDoneButton initialTab={configTab} onDirtyChange={setDirty} />
+            <AppConfigPanel initialTab={configTab} onDirtyChange={setDirty} />
         </Modal>
     );
 }
