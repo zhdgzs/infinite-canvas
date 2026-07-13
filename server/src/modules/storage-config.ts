@@ -84,7 +84,6 @@ export async function storageConfigRoutes(app: FastifyInstance) {
                 type: "s3",
                 isActive: false,
                 createdAt: now(),
-                updatedAt: now(),
                 ...toBackendPatch({ ...draft, secretAccessKey: secret }),
             }));
         } catch (error) {
