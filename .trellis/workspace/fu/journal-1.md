@@ -71,3 +71,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: 生成任务接口语义重构
+
+**Date**: 2026-07-14
+**Task**: 生成任务接口语义重构
+**Branch**: `main`
+
+### Summary
+
+将生成任务创建、状态轮询、取消与生成记录拆分为语义接口，精简高频轮询响应并迁移前端调用。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2e19872` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
