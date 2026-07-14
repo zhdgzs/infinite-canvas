@@ -3109,12 +3109,11 @@ async function resolveMetadataReferences(metadata: CanvasNodeMetadata) {
 async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
     return Promise.all(
         nodes.map(async (node) => {
-            const content = node.metadata?.content;
-            if ((node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) && node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(node.metadata.storageKey, content) } };
-            if (node.type !== CanvasNodeType.Image || !content) return node;
-            if (node.metadata?.storageKey) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(node.metadata.storageKey, content) } };
-            if (!content.startsWith("data:image/")) return node;
-            return { ...node, metadata: { ...node.metadata, ...imageMetadata(await uploadImage(content)) } };
+            const storageKey = node.metadata?.storageKey;
+            if (!storageKey) return node;
+            if (node.type === CanvasNodeType.Image) return { ...node, metadata: { ...node.metadata, content: await resolveImageUrl(storageKey) } };
+            if (node.type === CanvasNodeType.Video || node.type === CanvasNodeType.Audio) return { ...node, metadata: { ...node.metadata, content: await resolveMediaUrl(storageKey) } };
+            return node;
         }),
     );
 }
@@ -3122,10 +3121,6 @@ async function hydrateCanvasImages(nodes: CanvasNodeData[]) {
 async function hydrateAssistantImages(sessions: CanvasAssistantSession[]) {
     const hydrateItem = async <T extends { dataUrl?: string; storageKey?: string }>(item: T) => {
         if (item.storageKey) return { ...item, dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl) };
-        if (item.dataUrl?.startsWith("data:image/")) {
-            const image = await uploadImage(item.dataUrl);
-            return { ...item, dataUrl: image.url, storageKey: image.storageKey };
-        }
         return item;
     };
     return Promise.all(
