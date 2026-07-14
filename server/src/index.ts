@@ -6,7 +6,7 @@ import { startGenerationWorker } from "./modules/worker.js";
 async function main() {
     assertRuntimeConfig();
     const app = await buildApp();
-    const worker = startGenerationWorker();
+    const worker = startGenerationWorker(app.log);
     const shutdown = async () => {
         await worker.stop();
         await app.close();

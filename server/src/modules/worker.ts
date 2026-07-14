@@ -1,4 +1,5 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
+import type { FastifyBaseLogger } from "fastify";
 
 import { config } from "../config.js";
 import { db } from "../db/client.js";
@@ -20,8 +21,8 @@ const running = new Map<TaskKind, number>([
     ["text", 0],
 ]);
 
-export function startGenerationWorker() {
-    const tick = () => void runWorkerTick().catch((error) => console.error("generation worker error", error));
+export function startGenerationWorker(logger: FastifyBaseLogger) {
+    const tick = () => void runWorkerTick(logger).catch((error) => logger.error({ err: logError(error) }, "generation worker tick failed"));
     const timer = setInterval(tick, 1500);
     tick();
     return {
@@ -29,11 +30,11 @@ export function startGenerationWorker() {
     };
 }
 
-async function runWorkerTick() {
-    await Promise.all((["image", "audio", "video", "text"] as const).map((kind) => startQueuedTasks(kind)));
+async function runWorkerTick(logger: FastifyBaseLogger) {
+    await Promise.all((["image", "audio", "video", "text"] as const).map((kind) => startQueuedTasks(kind, logger)));
 }
 
-async function startQueuedTasks(kind: TaskKind) {
+async function startQueuedTasks(kind: TaskKind, logger: FastifyBaseLogger) {
     const available = concurrencyFor(kind) - (running.get(kind) || 0);
     if (available <= 0) return;
     const tasks = await db
@@ -44,11 +45,11 @@ async function startQueuedTasks(kind: TaskKind) {
         .limit(available);
     for (const task of tasks) {
         running.set(kind, (running.get(kind) || 0) + 1);
-        void runTask(task).finally(() => running.set(kind, Math.max(0, (running.get(kind) || 1) - 1)));
+        void runTask(task, logger).finally(() => running.set(kind, Math.max(0, (running.get(kind) || 1) - 1)));
     }
 }
 
-async function runTask(task: GenerationTask) {
+async function runTask(task: GenerationTask, logger: FastifyBaseLogger) {
     const [locked] = await db
         .update(generationTasks)
         .set({ status: "running", startedAt: now(), updatedAt: now() })
@@ -66,9 +67,10 @@ async function runTask(task: GenerationTask) {
             .set({ status: "succeeded", result: result.result, providerTaskId: result.providerTaskId, providerStatus: result.providerStatus, updatedAt: now(), completedAt: now() })
             .where(eq(generationTasks.id, task.id));
     } catch (error) {
+        logger.error({ err: logError(error), taskId: task.id, kind: task.kind, channelId: task.channelId, model: task.model }, "generation task failed");
         await db
             .update(generationTasks)
-            .set({ status: "failed", error: error instanceof Error ? error.message : "生成失败", updatedAt: now(), completedAt: now() })
+            .set({ status: "failed", error: taskErrorMessage(error), updatedAt: now(), completedAt: now() })
             .where(eq(generationTasks.id, task.id));
     }
 }
@@ -461,9 +463,57 @@ async function getTask(id: string) {
 async function fetchJson<T>(url: string, init: RequestInit = {}) {
     const response = await fetch(url, init);
     const text = await response.text();
-    const payload = text ? (JSON.parse(text) as T) : ({} as T);
-    if (!response.ok) throw new Error(readApiError(payload) || `请求失败：${response.status}`);
+    let payload: T;
+    try {
+        payload = text ? (JSON.parse(text) as T) : ({} as T);
+    } catch {
+        if (!response.ok) throw new Error(httpErrorMessage(response.status, text));
+        throw new Error(`接口响应不是有效 JSON：HTTP ${response.status}`);
+    }
+    if (!response.ok) throw new Error(httpErrorMessage(response.status, readApiError(payload)));
     return payload;
+}
+
+function httpErrorMessage(status: number, detail: string) {
+    const message = safeErrorText(detail.replace(/\s+/g, " ").trim());
+    return `请求失败：HTTP ${status}${message ? `：${message}` : ""}`;
+}
+
+function taskErrorMessage(error: unknown) {
+    if (!(error instanceof Error)) return "生成失败";
+    const message = error.message.trim() || "生成失败";
+    if (!/^fetch failed$/i.test(message)) return safeErrorText(message);
+    const causes: string[] = [];
+    const visited = new Set<unknown>([error]);
+    let cause = error.cause;
+    while (cause instanceof Error && causes.length < 3 && !visited.has(cause)) {
+        visited.add(cause);
+        const causeMessage = cause.message.trim();
+        if (causeMessage && causeMessage !== message && causes.at(-1) !== causeMessage) causes.push(causeMessage);
+        cause = cause.cause;
+    }
+    return safeErrorText([message, ...causes].join("："));
+}
+
+function safeErrorText(value: string) {
+    return redactErrorText(value).slice(0, 1000);
+}
+
+function redactErrorText(value: string) {
+    return value
+        .replace(/\bBearer\s+[^\s,;]+/gi, "Bearer 已隐藏")
+        .replace(/\b(api[-_ ]?key|authorization|secret|credential|token)\b([^,;\n]{0,24}?[:=]\s*)[^\s,;]+/gi, "$1$2已隐藏");
+}
+
+function logError(error: unknown, visited = new Set<unknown>()): unknown {
+    if (!(error instanceof Error)) return safeErrorText(String(error));
+    if (visited.has(error)) return new Error("错误原因链存在循环");
+    visited.add(error);
+    const cause = error.cause instanceof Error ? logError(error.cause, visited) : undefined;
+    const safe = cause ? new Error(safeErrorText(error.message), { cause }) : new Error(safeErrorText(error.message));
+    safe.name = error.name;
+    if (error.stack) safe.stack = redactErrorText(error.stack);
+    return safe;
 }
 
 async function readBinaryResponse(response: Response, fallback: string) {
@@ -477,13 +527,14 @@ async function readBinaryResponse(response: Response, fallback: string) {
 }
 
 async function readResponseError(response: Response, buffer: Buffer, fallback: string) {
+    let detail = "";
     try {
-        const message = readApiError(JSON.parse(buffer.toString("utf8")) as unknown);
-        if (message) return message;
+        detail = readApiError(JSON.parse(buffer.toString("utf8")) as unknown);
     } catch {
-        // ignore non-json provider errors
+        if ((response.headers.get("content-type") || "").startsWith("text/")) detail = buffer.toString("utf8");
     }
-    return response.status ? `${fallback}：${response.status}` : fallback;
+    const message = safeErrorText(detail.replace(/\s+/g, " ").trim());
+    return response.status ? `${fallback}：HTTP ${response.status}${message ? `：${message}` : ""}` : fallback;
 }
 
 function buildApiUrl(baseUrl: string, path: string) {
