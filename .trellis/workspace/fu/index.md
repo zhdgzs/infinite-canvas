@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-07-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~106 | Active |
+| `journal-1.md` | ~139 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-07-14 | 完善生成任务失败诊断 | `1479f93` | `main` |
 | 3 | 2026-07-14 | 生成任务接口语义重构 | `2e19872` | `main` |
 | 2 | 2026-07-14 | 统一全局东八区时区 | `55faf75` | `main` |
 | 1 | 2026-07-12 | 完成磁盘与 S3/MinIO 可配置存储 | `d97a12a` | `main` |

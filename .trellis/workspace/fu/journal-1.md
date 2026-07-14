@@ -104,3 +104,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: 完善生成任务失败诊断
+
+**Date**: 2026-07-14
+**Task**: 完善生成任务失败诊断
+**Branch**: `main`
+
+### Summary
+
+修复生成 worker 仅保存 fetch failed 且无 Docker 失败日志的问题：注入 Fastify logger，保留并脱敏 Error.cause，补充第三方 HTTP/JSON 错误信息、生成任务契约和待测试记录。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1479f93` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
