@@ -38,3 +38,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: 统一全局东八区时区
+
+**Date**: 2026-07-14
+**Task**: 统一全局东八区时区
+**Branch**: `main`
+
+### Summary
+
+统一 Node、PostgreSQL 与 Docker 容器时区为 Asia/Shanghai，并在 Fastify 全局序列化 API Date 字段为带 +08:00 偏移的 ISO 时间。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `55faf75` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
