@@ -43,7 +43,7 @@ export async function fileRoutes(app: FastifyInstance) {
         if (backend.type === "s3") {
             return ok({
                 url: await s3AccessUrl(backend, file.path, config.fileAccessUrlTtlSeconds),
-                expiresAt: expiresAt.toISOString(),
+                expiresAt,
                 mimeType: file.mimeType,
                 bytes: file.bytes,
             });
@@ -51,7 +51,7 @@ export async function fileRoutes(app: FastifyInstance) {
         const token = signFileAccessToken(storageKey, expiresAt);
         return ok({
             url: `/api/files/${encodeURIComponent(storageKey)}/content?token=${encodeURIComponent(token)}`,
-            expiresAt: expiresAt.toISOString(),
+            expiresAt,
             mimeType: file.mimeType,
             bytes: file.bytes,
         });

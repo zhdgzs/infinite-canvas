@@ -20,6 +20,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Storage Contract](./storage-contract.md) | Local/S3 backend binding and access contracts | Active |
+| [Time Zone Contract](./time-zone-contract.md) | Runtime, PostgreSQL, and API date serialization | Active |
 
 ---
 

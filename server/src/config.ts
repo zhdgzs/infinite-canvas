@@ -1,6 +1,9 @@
 import "dotenv/config";
 import { resolve } from "node:path";
 
+const timeZone = "Asia/Shanghai";
+process.env.TZ = timeZone;
+
 function readNumber(name: string, fallback: number) {
     const value = Number(process.env[name]);
     return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -15,6 +18,7 @@ function readBoolean(name: string, fallback = false) {
 export const config = {
     port: readNumber("PORT", 3000),
     host: process.env.HOST || "0.0.0.0",
+    timeZone,
     databaseUrl: process.env.DATABASE_URL || "postgres://infinite_canvas:infinite_canvas@localhost:5432/infinite_canvas",
     sessionSecret: process.env.SESSION_SECRET || "",
     uploadDir: process.env.UPLOAD_DIR || "/data/uploads",

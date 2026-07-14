@@ -8,6 +8,7 @@ import { ZodError } from "zod";
 
 import { config } from "./config.js";
 import { AppError, fail, ok } from "./lib/api-response.js";
+import { serializeDates } from "./lib/time.js";
 import { authRoutes } from "./auth/routes.js";
 import { fileRoutes } from "./files/routes.js";
 import { projectRoutes } from "./modules/projects.js";
@@ -29,6 +30,8 @@ export async function buildApp() {
             fileSize: config.uploadLimitsMb.file * 1024 * 1024,
         },
     });
+
+    app.addHook("preSerialization", async (_request, _reply, payload) => serializeDates(payload));
 
     app.setErrorHandler((error, _request, reply) => {
         if (error instanceof AppError) return fail(reply, error.code, error.message, error.statusCode);

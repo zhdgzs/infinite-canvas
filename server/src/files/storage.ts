@@ -101,7 +101,7 @@ export async function debugS3Backend(backend: StorageBackend) {
     const url = await s3AccessUrl(backend, publicKey, 900);
     const timer = setTimeout(() => void client.send(new DeleteObjectCommand({ Bucket: bucket, Key: publicKey })).catch(() => undefined), 10 * 60 * 1000);
     timer.unref();
-    return { url, expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString() };
+    return { url, expiresAt: new Date(Date.now() + 15 * 60 * 1000) };
 }
 
 function s3Client(backend: StorageBackend, publicAccess = false) {

@@ -6,6 +6,7 @@ import * as schema from "./schema.js";
 
 export const pool = new pg.Pool({
     connectionString: config.databaseUrl,
+    options: `-c timezone=${config.timeZone}`,
 });
 
 export const db = drizzle(pool, { schema });
