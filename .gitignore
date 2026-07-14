@@ -9,4 +9,5 @@ data/
 *.tsbuildinfo
 .DS_Store
 .idea
+.vscode/
 web/dist

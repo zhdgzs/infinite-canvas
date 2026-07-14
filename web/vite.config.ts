@@ -13,6 +13,14 @@ const localChangelog = readFileSync(resolve(webDir, "../CHANGELOG.md"), "utf8");
 export default defineConfig({
     base: process.env.VITE_BASE || "/",
     plugins: [react()],
+    server: {
+        proxy: {
+            "/api": {
+                target: "http://127.0.0.1:3050",
+                changeOrigin: true,
+            },
+        },
+    },
     resolve: {
         alias: {
             "@": resolve(webDir, "src"),

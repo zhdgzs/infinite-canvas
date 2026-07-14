@@ -46,17 +46,9 @@
 
 当前版本使用服务端持久化：画布、素材、生成记录、文件元数据、会话和 AI 配置保存在 PostgreSQL。媒体文件默认保存在 `./data/uploads`，管理员也可在配置页切换到 AWS S3 或 MinIO 等 S3 兼容存储；每个文件会绑定实际写入的存储后端，因此磁盘与 S3 文件可以并存读取。方案见 [服务端持久化方案](docs/content/docs/progress/server-backend-storage-plan.md)。
 
-### 本地开发
+当前完整应用依赖 Fastify 后端和 PostgreSQL，不能只启动 `web` 目录下的 Vite 开发服务。
 
-```bash
-git clone git@github.com:zhdgzs/infinite-canvas.git
-cd infinite-canvas
-cd web
-bun install
-bun run dev
-```
-
-### Docker 运行
+### 使用发布镜像
 
 ```bash
 git clone git@github.com:zhdgzs/infinite-canvas.git
@@ -76,28 +68,70 @@ SESSION_SECRET: 生成的随机值
 docker compose up -d
 ```
 
+启动后访问 `http://localhost:3000`。如果项目运行在远程服务器上，可在 VS Code Remote SSH 的“端口”面板中转发远端 `3000` 端口，再使用本地浏览器打开转发后的地址。
+
 更新时运行：
 
 ```bash
 docker compose pull && docker compose up -d
 ```
 
-运行后默认端口3000，可访问 `http://localhost:3000`。
+### 基于当前源码运行
+
+如需运行服务器上的当前源码，而不是拉取已发布镜像，先将 `docker-compose.local.yml` 中的 `SESSION_SECRET` 替换为上面生成的随机值，然后执行：
+
+```bash
+docker compose -f docker-compose.local.yml up -d --build
+```
+
+修改源码后需要再次执行该命令重新构建并启动容器。可使用以下命令查看运行状态和服务端日志：
+
+```bash
+docker compose -f docker-compose.local.yml ps
+docker compose -f docker-compose.local.yml logs -f server
+```
+
+### 源码开发（Vite 热更新）
+
+开发模式下由 Docker 运行 PostgreSQL，Fastify 和 Vite 直接运行在服务器上。先停止本地构建容器并启动数据库：
+
+```bash
+docker compose -f docker-compose.local.yml stop server
+docker compose -f docker-compose.local.yml up -d --wait postgres
+```
+
+首次启动后端时创建开发环境文件、安装依赖并执行数据库迁移：
+
+```bash
+cd server
+cp -n .env.example .env
+npm install
+npm run db:migrate
+npm run dev
+```
+
+后端默认监听 `3050`。前端使用 Bun；如果服务器尚未安装，先执行：
+
+```bash
+curl -fsSL https://bun.sh/install | bash
+source ~/.bashrc
+bun --version
+```
+
+安装完成后也可以重新打开 VS Code 远程终端使环境变量生效。然后启动前端：
+
+```bash
+cd web
+bun install
+bun run dev
+```
+
+Vite 监听 `3051`，并将 `/api` 请求代理到 `http://127.0.0.1:3050`。在 VS Code Remote SSH 的“端口”面板中转发远端 `3051`，即可在本地浏览器调试并使用热更新。
 
 首次打开后按页面提示注册第一个 admin 账号，再进入配置页添加自己的模型渠道、`Base URL`、`API Key` 和模型名。配置修改只在点击页面底部“保存全部配置”后生效。
 
 如需使用 S3/MinIO，在管理员配置页打开“存储”Tab，新增后端并填写服务端 Endpoint、浏览器公开 Endpoint、Region、Bucket、Access Key、Secret Key、对象前缀和 Path-style。先点击“调试连接”验证容器到存储服务的读写删除权限，再自行打开返回的临时链接验证公开域名、TLS、签名和 CORS；调试不会创建 Bucket，保存新后端也不会自动将其设为默认。确认后选择该后端作为默认存储并保存即可，切换只影响之后写入的文件。
 
-## New API 自动配置
-
-如果使用 New API，可在 `系统设置 -> 聊天方式 -> 添加聊天设置` 中填入：
-
-```text
-https://canvas.best?apiKey={key}&baseUrl={address}
-```
-
-跳转后会自动打开配置弹窗并填入 API Key 和 Base URL。
-如果自己部署了，可以把 `https://canvas.best` 替换成你部署的地址。
 
 ## 效果展示
 
@@ -120,34 +154,9 @@ https://canvas.best?apiKey={key}&baseUrl={address}
   </tr>
 </table>
 
-## 联系方式
-
-项目定制二次开发需求 / 生图 API 需求可联系。
-
-邮箱：1844025705@qq.com · QQ：1844025705
-
-## 赞助支持
-
-<div align="center">
-
-如果这个项目对你有帮助，欢迎通过爱发电赞助支持，你的每一份鼓励都是持续更新的动力！
-
-<br>
-
-<a href="https://ifdian.net/a/basketikun">
-  <img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9%E4%BD%9C%E8%80%85-946ce6?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0xMiAyMS4zNWwtMS40NS0xLjMyQzUuNCAxNS4zNiAyIDEyLjI4IDIgOC41IDIgNS40MiA0LjQyIDMgNy41IDNjMS43NCAwIDMuNDEuODEgNC41IDIuMDlDMTMuMDkgMy44MSAxNC43NiAzIDE2LjUgMyAxOS41OCAzIDIyIDUuNDIgMjIgOC41YzAgMy43OC0zLjQgNi44Ni04LjU1IDExLjU0TDEyIDIxLjM1eiIvPjwvc3ZnPg==&logoColor=white" alt="爱发电赞助" />
-</a>
-
-<br>
-<br>
-
-</div>
-
 ## 社区支持
 
 学 AI，上 L 站：[LinuxDO](https://linux.do/)
-
-点击链接加入群聊【AI开源交流】：https://qm.qq.com/q/DFnKzZ807u
 
 ## 开源协议
 
