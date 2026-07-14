@@ -11,7 +11,7 @@ type StoredAudioBlob = Blob & { storedAudio?: StoredAudio };
 export async function requestAudioGeneration(config: AiConfig, prompt: string, options?: RequestOptions): Promise<Blob> {
     const selectedModel = config.model || config.audioModel;
     const channel = resolveModelChannel(config, selectedModel);
-    const task = await createGenerationTask<AudioTaskResult>(
+    const task = await createGenerationTask(
         {
             kind: "audio",
             prompt,
@@ -28,7 +28,8 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, o
         options,
     );
     const result = await pollGenerationTask<AudioTaskResult>(task.id, options);
-    if (result.status !== "succeeded" || !result.result.audio?.storageKey) throw new Error(result.error || "音频生成失败");
+    if (result.status !== "succeeded") throw new Error(result.error || "音频生成失败");
+    if (!result.result.audio?.storageKey) throw new Error("音频接口没有返回可播放的音频");
     const blob = await getMediaBlob(result.result.audio.storageKey);
     if (!blob) throw new Error("音频文件读取失败");
     return Object.assign(blob, { storedAudio: result.result.audio });

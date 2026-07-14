@@ -21,18 +21,18 @@ const generationPayload = z.object({
 });
 
 export async function generationRoutes(app: FastifyInstance) {
-    app.get("/api/generations", { preHandler: requireAuth }, async (request) => {
+    app.get("/api/generations/records", { preHandler: requireAuth }, async (request) => {
         const { page, pageSize, offset } = pagination(request.query);
         const kind = queryString(request.query, "kind");
         const filters = [eq(generationTasks.userId, request.auth!.user.id), isNull(generationTasks.deletedAt)];
         if (kind) filters.push(eq(generationTasks.kind, kind));
         const where = and(...filters);
         const [total] = await db.select({ value: count() }).from(generationTasks).where(where);
-        const items = await db.select().from(generationTasks).where(where).orderBy(desc(generationTasks.createdAt)).limit(pageSize).offset(offset);
+        const items = await db.select(generationRecordFields).from(generationTasks).where(where).orderBy(desc(generationTasks.createdAt)).limit(pageSize).offset(offset);
         return ok({ items, total: Number(total?.value || 0), page, pageSize });
     });
 
-    app.post("/api/generations", { preHandler: requireAuth }, async (request) => {
+    app.post("/api/generations/tasks", { preHandler: requireAuth }, async (request) => {
         const body = generationPayload.parse(request.body);
         const backend = await activeStorageBackend();
         const created = now();
@@ -53,38 +53,75 @@ export async function generationRoutes(app: FastifyInstance) {
                 createdAt: created,
                 updatedAt: created,
             })
-            .returning();
+            .returning({ id: generationTasks.id, status: generationTasks.status });
         return ok(task);
     });
 
-    app.get("/api/generations/:id", { preHandler: requireAuth }, async (request) => {
+    app.get("/api/generations/tasks/:id", { preHandler: requireAuth }, async (request) => {
         const id = String((request.params as { id?: string }).id || "");
-        return ok(await findTask(id, request.auth!.user.id));
+        return ok(taskStateResponse(await findTaskState(id, request.auth!.user.id)));
     });
 
-    app.post("/api/generations/:id/cancel", { preHandler: requireAuth }, async (request) => {
+    app.post("/api/generations/tasks/:id/cancel", { preHandler: requireAuth }, async (request) => {
         const id = String((request.params as { id?: string }).id || "");
-        const task = await findTask(id, request.auth!.user.id);
+        const task = await findTaskStatus(id, request.auth!.user.id);
         if (["succeeded", "failed", "cancelled"].includes(task.status)) throw new AppError(409, "当前任务状态不能取消", 409);
         const status = task.status === "queued" ? "cancelled" : task.status;
         const [updated] = await db
             .update(generationTasks)
             .set({ status, cancelRequested: true, updatedAt: now(), completedAt: status === "cancelled" ? now() : undefined })
             .where(and(eq(generationTasks.id, id), eq(generationTasks.userId, request.auth!.user.id)))
-            .returning();
+            .returning({ id: generationTasks.id, status: generationTasks.status });
         return ok(updated);
     });
 
-    app.delete("/api/generations/:id", { preHandler: requireAuth }, async (request) => {
+    app.delete("/api/generations/records/:id", { preHandler: requireAuth }, async (request) => {
         const id = String((request.params as { id?: string }).id || "");
-        await findTask(id, request.auth!.user.id);
+        const task = await findTaskStatus(id, request.auth!.user.id);
+        if (!["succeeded", "failed", "cancelled"].includes(task.status)) throw new AppError(409, "请先取消生成任务", 409);
         await db.update(generationTasks).set({ deletedAt: now(), updatedAt: now() }).where(and(eq(generationTasks.id, id), eq(generationTasks.userId, request.auth!.user.id)));
         return ok({});
     });
 }
 
-async function findTask(id: string, userId: string) {
-    const [task] = await db.select().from(generationTasks).where(and(eq(generationTasks.id, id), eq(generationTasks.userId, userId), isNull(generationTasks.deletedAt))).limit(1);
+const generationRecordFields = {
+    id: generationTasks.id,
+    kind: generationTasks.kind,
+    status: generationTasks.status,
+    prompt: generationTasks.prompt,
+    model: generationTasks.model,
+    config: generationTasks.config,
+    references: generationTasks.references,
+    result: generationTasks.result,
+    error: generationTasks.error,
+    createdAt: generationTasks.createdAt,
+    updatedAt: generationTasks.updatedAt,
+    startedAt: generationTasks.startedAt,
+    completedAt: generationTasks.completedAt,
+};
+
+async function findTaskState(id: string, userId: string) {
+    const [task] = await db
+        .select({ id: generationTasks.id, status: generationTasks.status, result: generationTasks.result, error: generationTasks.error })
+        .from(generationTasks)
+        .where(and(eq(generationTasks.id, id), eq(generationTasks.userId, userId), isNull(generationTasks.deletedAt)))
+        .limit(1);
     if (!task) throw new AppError(404, "生成任务不存在", 404);
     return task;
+}
+
+async function findTaskStatus(id: string, userId: string) {
+    const [task] = await db
+        .select({ id: generationTasks.id, status: generationTasks.status })
+        .from(generationTasks)
+        .where(and(eq(generationTasks.id, id), eq(generationTasks.userId, userId), isNull(generationTasks.deletedAt)))
+        .limit(1);
+    if (!task) throw new AppError(404, "生成任务不存在", 404);
+    return task;
+}
+
+function taskStateResponse(task: Awaited<ReturnType<typeof findTaskState>>) {
+    if (task.status === "succeeded") return { id: task.id, status: task.status, result: task.result };
+    if (task.status === "failed" || task.status === "cancelled") return { id: task.id, status: task.status, error: task.error };
+    return { id: task.id, status: task.status };
 }

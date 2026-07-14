@@ -14,7 +14,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/services/api/image";
-import { deleteGenerationTask, listGenerationTasks, type GenerationTask } from "@/services/api/generations";
+import { deleteGenerationRecord, listGenerationRecords, type GenerationRecord } from "@/services/api/generations";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
@@ -243,7 +243,11 @@ export default function ImagePage() {
     };
 
     const deleteSelectedLogs = () => {
-        void Promise.all(selectedLogIds.map((id) => deleteGenerationTask(id))).then(refreshLogs);
+        if (logs.some((log) => selectedLogIds.includes(log.id) && log.status === "生成中")) {
+            message.warning("请先取消生成任务");
+            return;
+        }
+        void Promise.all(selectedLogIds.map((id) => deleteGenerationRecord(id))).then(refreshLogs);
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
             setPreviewLog(null);
             setResults([]);
@@ -695,14 +699,14 @@ type RemoteImageTaskResult = { images?: Array<{ storageKey?: string; width?: num
 
 async function readRemoteLogs() {
     try {
-        const page = await listGenerationTasks<RemoteImageTaskResult>({ kind: "image", pageSize: 100 });
+        const page = await listGenerationRecords<RemoteImageTaskResult>({ kind: "image", pageSize: 100 });
         return Promise.all(page.items.map(remoteImageTaskToLog));
     } catch {
         return [];
     }
 }
 
-async function remoteImageTaskToLog(task: GenerationTask<RemoteImageTaskResult>): Promise<GenerationLog> {
+async function remoteImageTaskToLog(task: GenerationRecord<RemoteImageTaskResult>): Promise<GenerationLog> {
     const config = imageTaskConfigFromTask(task);
     const references = await Promise.all(
         task.references.map(async (item) => ({
@@ -751,7 +755,7 @@ async function remoteImageTaskToLog(task: GenerationTask<RemoteImageTaskResult>)
     };
 }
 
-function imageTaskConfigFromTask(task: GenerationTask<RemoteImageTaskResult>): GenerationLogConfig {
+function imageTaskConfigFromTask(task: GenerationRecord<RemoteImageTaskResult>): GenerationLogConfig {
     return {
         model: task.model || "",
         imageModel: task.model || "",
@@ -779,13 +783,13 @@ function ReferenceOrderButtons({ index, total, onMove }: { index: number; total:
     );
 }
 
-function imageTaskStatus(status: GenerationTask["status"]): GenerationLog["status"] {
+function imageTaskStatus(status: GenerationRecord["status"]): GenerationLog["status"] {
     if (status === "succeeded") return "成功";
     if (status === "failed" || status === "cancelled") return "失败";
     return "生成中";
 }
 
-function durationMs(task: Pick<GenerationTask, "createdAt" | "updatedAt" | "startedAt" | "completedAt">) {
+function durationMs(task: Pick<GenerationRecord, "createdAt" | "updatedAt" | "startedAt" | "completedAt">) {
     const start = Date.parse(task.startedAt || task.createdAt) || Date.now();
     const end = Date.parse(task.completedAt || task.updatedAt) || Date.now();
     return Math.max(0, end - start);

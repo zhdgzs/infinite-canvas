@@ -23,7 +23,7 @@ export async function requestVideoGeneration(config: AiConfig, prompt: string, r
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
     const selectedModel = (config.model || config.videoModel).trim();
     const channel = resolveModelChannel(config, selectedModel);
-    const task = await createGenerationTask<VideoTaskResult>(
+    const task = await createGenerationTask(
         {
             kind: "video",
             prompt,

@@ -19,7 +19,7 @@ type TextTaskResult = { text?: string };
 export async function requestGeneration(config: AiConfig, prompt: string, options?: RequestOptions) {
     const selectedModel = config.model || config.imageModel;
     const channel = resolveModelChannel(config, selectedModel);
-    const task = await createGenerationTask<ImageTaskResult>(
+    const task = await createGenerationTask(
         {
             kind: "image",
             prompt,
@@ -36,7 +36,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[], mask?: ReferenceImage, options?: RequestOptions) {
     const selectedModel = config.model || config.imageModel;
     const channel = resolveModelChannel(config, selectedModel);
-    const task = await createGenerationTask<ImageTaskResult>(
+    const task = await createGenerationTask(
         {
             kind: "image",
             prompt: buildImageReferencePromptText(prompt, references),
@@ -53,7 +53,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
     const selectedModel = config.model || config.textModel;
     const channel = resolveModelChannel(config, selectedModel);
-    const task = await createGenerationTask<TextTaskResult>(
+    const task = await createGenerationTask(
         {
             kind: "text",
             prompt: messages.map(messageText).filter(Boolean).join("\n"),

@@ -14,7 +14,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceRefe
 import { resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
-import { deleteGenerationTask, listGenerationTasks, type GenerationTask } from "@/services/api/generations";
+import { deleteGenerationRecord, listGenerationRecords, type GenerationRecord } from "@/services/api/generations";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import { modelOptionLabel, useConfigStore, type AiConfig } from "@/stores/use-config-store";
@@ -274,7 +274,11 @@ export default function VideoPage() {
     };
 
     const deleteSelectedLogs = () => {
-        void Promise.all(selectedLogIds.map((id) => deleteGenerationTask(id))).then(refreshLogs);
+        if (logs.some((log) => selectedLogIds.includes(log.id) && log.status === "生成中")) {
+            message.warning("请先取消生成任务");
+            return;
+        }
+        void Promise.all(selectedLogIds.map((id) => deleteGenerationRecord(id))).then(refreshLogs);
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
             setPreviewLog(null);
             setResults([]);
@@ -688,14 +692,14 @@ type RemoteVideoTaskResult = { video?: { storageKey?: string; url?: string; widt
 
 async function readRemoteLogs() {
     try {
-        const page = await listGenerationTasks<RemoteVideoTaskResult>({ kind: "video", pageSize: 100 });
+        const page = await listGenerationRecords<RemoteVideoTaskResult>({ kind: "video", pageSize: 100 });
         return Promise.all(page.items.map(remoteVideoTaskToLog));
     } catch {
         return [];
     }
 }
 
-async function remoteVideoTaskToLog(task: GenerationTask<RemoteVideoTaskResult>): Promise<GenerationLog> {
+async function remoteVideoTaskToLog(task: GenerationRecord<RemoteVideoTaskResult>): Promise<GenerationLog> {
     const config = videoTaskConfigFromTask(task);
     const references = await Promise.all(task.references.filter((item) => stringValue(item.kind) === "image").map(referenceImageFromTask));
     const videoReferences = await Promise.all(task.references.filter((item) => stringValue(item.kind) === "video").map(referenceVideoFromTask));
@@ -759,7 +763,7 @@ async function referenceAudioFromTask(item: Record<string, unknown>): Promise<Re
     };
 }
 
-async function videoFromTask(task: GenerationTask<RemoteVideoTaskResult>): Promise<GeneratedVideo | undefined> {
+async function videoFromTask(task: GenerationRecord<RemoteVideoTaskResult>): Promise<GeneratedVideo | undefined> {
     const result = task.result.video;
     if (!result) return undefined;
     const storageKey = result.storageKey || "";
@@ -817,7 +821,7 @@ function ReferenceOrderButtons({ index, total, onMove }: { index: number; total:
     );
 }
 
-function videoTaskConfigFromTask(task: GenerationTask<RemoteVideoTaskResult>): GenerationLogConfig {
+function videoTaskConfigFromTask(task: GenerationRecord<RemoteVideoTaskResult>): GenerationLogConfig {
     return {
         model: task.model || "",
         videoModel: task.model || "",
@@ -829,13 +833,13 @@ function videoTaskConfigFromTask(task: GenerationTask<RemoteVideoTaskResult>): G
     };
 }
 
-function videoTaskStatus(status: GenerationTask["status"]): GenerationLog["status"] {
+function videoTaskStatus(status: GenerationRecord["status"]): GenerationLog["status"] {
     if (status === "succeeded") return "成功";
     if (status === "failed" || status === "cancelled") return "失败";
     return "生成中";
 }
 
-function durationMs(task: Pick<GenerationTask, "createdAt" | "updatedAt" | "startedAt" | "completedAt">) {
+function durationMs(task: Pick<GenerationRecord, "createdAt" | "updatedAt" | "startedAt" | "completedAt">) {
     const start = Date.parse(task.startedAt || task.createdAt) || Date.now();
     const end = Date.parse(task.completedAt || task.updatedAt) || Date.now();
     return Math.max(0, end - start);

@@ -21,6 +21,7 @@ This directory contains guidelines for backend development. Fill in each file wi
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 | [Storage Contract](./storage-contract.md) | Local/S3 backend binding and access contracts | Active |
 | [Time Zone Contract](./time-zone-contract.md) | Runtime, PostgreSQL, and API date serialization | Active |
+| [Generation Task Contract](./generation-task-contract.md) | Task execution, polling, and generation records | Active |
 
 ---
 
