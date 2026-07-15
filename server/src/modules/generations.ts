@@ -68,7 +68,7 @@ export async function generationRoutes(app: FastifyInstance) {
         reply.raw.once("close", () => controller.abort());
         let response: Response;
         try {
-            response = await requestOpenAiTextStream({ ...body, prompt: body.prompt, config: body.config || {}, userId: request.auth!.user.id, signal: controller.signal });
+            response = await requestOpenAiTextStream({ ...body, prompt: body.prompt, channelId: body.channelId || null, model: body.model || null, config: body.config || {}, userId: request.auth!.user.id, signal: controller.signal });
         } catch (error) {
             console.error("text stream request failed", error);
             throw error;
