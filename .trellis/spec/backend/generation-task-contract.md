@@ -38,7 +38,8 @@ queued | running | succeeded | failed | cancelled
 - Old `/api/generations` collection/item routes have no compatibility layer.
 - The application logger is injected into the generation worker. Every failed task logs a redacted `err` projection plus `taskId`, `kind`, `channelId`, and `model` at error level before the task is persisted as failed.
 - Task failure messages unwrap a generic `fetch failed` through the standard `Error.cause` chain, redact credential-like values, and remain bounded before being stored in `generation_tasks.error`.
-- Provider non-2xx errors include the HTTP status and an available safe JSON or text reason. Provider request bodies, prompts, references, headers, and credentials are never logged.
+- Provider non-2xx errors include the HTTP status and an available safe JSON or text reason. Provider request bodies, prompts, references, request headers, and credentials are never logged.
+- Every failed task and worker tick failure also writes the original error to the process console. HTTP response errors include the complete response URL, status, headers, and body there only; the raw response is not sent to Pino or persisted to PostgreSQL.
 
 ### 4. Validation & Error Matrix
 
@@ -53,6 +54,7 @@ queued | running | succeeded | failed | cancelled
 | `fetch` fails with a network `cause` | Store a safe message containing the underlying DNS, connection, TLS, or timeout reason |
 | Provider returns non-2xx JSON or text | Store the HTTP status plus a bounded, redacted provider reason |
 | Provider returns invalid JSON with 2xx | Fail with an explicit invalid JSON response message |
+| Operator inspects container console after an HTTP response error | Receive complete response URL, status, headers, and body |
 
 ### 5. Good/Base/Bad Cases
 
@@ -63,6 +65,7 @@ queued | running | succeeded | failed | cancelled
 - Bad: deleting a running record while its worker continues consuming resources.
 - Good: `TypeError("fetch failed", { cause: new Error("connect ECONNREFUSED ...") })` produces a task error containing the connection reason and a structured Docker log keyed by task ID.
 - Bad: persisting only `error.message` in a background worker, because Undici keeps the actionable network reason in `error.cause` and no Fastify request handler will log the exception.
+- Good: wrap an HTTP response in `ProviderResponseError` and print it with `console.error`, while `logError` and `taskErrorMessage` consume only the bounded, redacted message.
 
 ### 6. Tests Required
 
@@ -75,6 +78,7 @@ queued | running | succeeded | failed | cancelled
 - Frontend: assert video refresh still resumes unfinished records.
 - Worker: assert generic fetch failures preserve a redacted cause, non-2xx responses preserve status and provider reason, and invalid JSON cannot replace the original HTTP failure.
 - Logging: assert task failures use the injected logger with `err`, task identity, kind, channel, and model while excluding request payloads and credentials.
+- Logging: assert a non-JSON or non-2xx HTTP response appears in the container console with its full response diagnostics but remains redacted and bounded in Pino and `generation_tasks.error`.
 
 ### 7. Wrong vs Correct
 

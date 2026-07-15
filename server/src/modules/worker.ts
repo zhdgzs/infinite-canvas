@@ -13,6 +13,7 @@ type AiChannel = typeof aiChannels.$inferSelect;
 type TaskKind = "image" | "video" | "audio" | "text";
 type Reference = Record<string, unknown>;
 type RunResult = { result: Record<string, unknown>; providerTaskId?: string; providerStatus?: string };
+type ProviderResponse = { url: string; status: number; statusText: string; headers: Record<string, string>; body: string };
 
 const running = new Map<TaskKind, number>([
     ["image", 0],
@@ -22,7 +23,10 @@ const running = new Map<TaskKind, number>([
 ]);
 
 export function startGenerationWorker(logger: FastifyBaseLogger) {
-    const tick = () => void runWorkerTick(logger).catch((error) => logger.error({ err: logError(error) }, "generation worker tick failed"));
+    const tick = () => void runWorkerTick(logger).catch((error) => {
+        console.error("generation worker tick failed", error);
+        logger.error({ err: logError(error) }, "generation worker tick failed");
+    });
     const timer = setInterval(tick, 1500);
     tick();
     return {
@@ -67,6 +71,7 @@ async function runTask(task: GenerationTask, logger: FastifyBaseLogger) {
             .set({ status: "succeeded", result: result.result, providerTaskId: result.providerTaskId, providerStatus: result.providerStatus, updatedAt: now(), completedAt: now() })
             .where(eq(generationTasks.id, task.id));
     } catch (error) {
+        console.error("generation task failed", { taskId: task.id, kind: task.kind, channelId: task.channelId, model: task.model, error, providerResponse: error instanceof ProviderResponseError ? error.response : undefined });
         logger.error({ err: logError(error), taskId: task.id, kind: task.kind, channelId: task.channelId, model: task.model }, "generation task failed");
         await db
             .update(generationTasks)
@@ -467,10 +472,9 @@ async function fetchJson<T>(url: string, init: RequestInit = {}) {
     try {
         payload = text ? (JSON.parse(text) as T) : ({} as T);
     } catch {
-        if (!response.ok) throw new Error(httpErrorMessage(response.status, text));
-        throw new Error(`接口响应不是有效 JSON：HTTP ${response.status}`);
+        throw providerResponseError(response, text, response.ok ? `接口响应不是有效 JSON：HTTP ${response.status}` : httpErrorMessage(response.status, text));
     }
-    if (!response.ok) throw new Error(httpErrorMessage(response.status, readApiError(payload)));
+    if (!response.ok) throw providerResponseError(response, text, httpErrorMessage(response.status, readApiError(payload)));
     return payload;
 }
 
@@ -516,12 +520,30 @@ function logError(error: unknown, visited = new Set<unknown>()): unknown {
     return safe;
 }
 
+class ProviderResponseError extends Error {
+    constructor(message: string, readonly response: ProviderResponse) {
+        super(message);
+        this.name = "ProviderResponseError";
+    }
+}
+
+function providerResponseError(response: Response, body: string, message: string) {
+    return new ProviderResponseError(message, {
+        url: response.url,
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        body,
+    });
+}
+
 async function readBinaryResponse(response: Response, fallback: string) {
     const buffer = Buffer.from(await response.arrayBuffer());
-    if (!response.ok) throw new Error(await readResponseError(response, buffer, fallback));
+    const body = buffer.toString("utf8");
+    if (!response.ok) throw providerResponseError(response, body, await readResponseError(response, buffer, fallback));
     if ((response.headers.get("content-type") || "").includes("json")) {
-        const message = readApiError(JSON.parse(buffer.toString("utf8")) as unknown);
-        if (message) throw new Error(message);
+        const message = readApiError(JSON.parse(body) as unknown);
+        if (message) throw providerResponseError(response, body, message);
     }
     return buffer;
 }
