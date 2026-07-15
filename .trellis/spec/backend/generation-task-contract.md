@@ -12,6 +12,7 @@
 
 ```text
 POST   /api/generations/tasks
+POST   /api/generations/text/stream
 GET    /api/generations/tasks/:id
 POST   /api/generations/tasks/:id/cancel
 GET    /api/generations/records?kind=<kind>&page=<page>&pageSize=<size>
@@ -28,6 +29,9 @@ queued | running | succeeded | failed | cancelled
 ### 3. Contracts
 
 - Task creation returns only `{ id, status: "queued" }`.
+- `POST /api/generations/text/stream` is authenticated, accepts `prompt`, `channelId`, `model`, and `config`, and directly proxies OpenAI Responses SSE to the browser. It never creates a `generation_tasks` row or exposes the channel API Key.
+- The stream request explicitly uses `stream: true` and `Accept: text/event-stream`; client disconnection aborts the upstream request.
+- Gemini text keeps the asynchronous task path because its stream protocol is outside this contract.
 - Task polling returns `{ id, status }` while queued or running, adds `result` only for succeeded tasks, and adds `error` only for failed or cancelled tasks.
 - Task queries select only `id`, `status`, `result`, and `error` from PostgreSQL.
 - Cancellation returns only `{ id, status }`. A queued task becomes cancelled immediately; a running task sets the internal cancellation flag and remains running until the worker marks it cancelled.
@@ -55,10 +59,12 @@ queued | running | succeeded | failed | cancelled
 | Provider returns non-2xx JSON or text | Store the HTTP status plus a bounded, redacted provider reason |
 | Provider returns invalid JSON with 2xx | Fail with an explicit invalid JSON response message |
 | Operator inspects container console after an HTTP response error | Receive complete response URL, status, headers, and body |
+| OpenAI text stream client disconnects | Abort upstream stream without creating a generation task |
 
 ### 5. Good/Base/Bad Cases
 
 - Good: a 1.2-second polling loop receives only task identity and state until the terminal response.
+- Good: an OpenAI text node receives `response.output_text.delta` directly through the authenticated SSE proxy and updates without polling.
 - Good: the records list restores image/video history and resumes an unfinished video task without exposing provider debug data.
 - Base: deleting a failed record hides it from history but leaves generated/storage files untouched.
 - Bad: `db.select().from(generationTasks)` in a normal API route, because it exposes internal fields and can repeatedly transfer large JSON payloads.
@@ -75,6 +81,7 @@ queued | running | succeeded | failed | cancelled
 - API: assert records contain every history restoration field and omit every internal field.
 - API: assert deleting queued/running returns `409`, while terminal deletion hides the record without deleting its file.
 - Frontend: assert image, video, audio, text, and canvas consumers handle the discriminated task state.
+- Stream: assert OpenAI text parses split SSE blocks and `response.output_text.delta`, while Gemini continues to use the text task endpoint.
 - Frontend: assert video refresh still resumes unfinished records.
 - Worker: assert generic fetch failures preserve a redacted cause, non-2xx responses preserve status and provider reason, and invalid JSON cannot replace the original HTTP failure.
 - Logging: assert task failures use the injected logger with `err`, task identity, kind, channel, and model while excluding request payloads and credentials.

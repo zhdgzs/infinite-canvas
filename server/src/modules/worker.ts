@@ -14,6 +14,7 @@ type TaskKind = "image" | "video" | "audio" | "text";
 type Reference = Record<string, unknown>;
 type RunResult = { result: Record<string, unknown>; providerTaskId?: string; providerStatus?: string };
 type ProviderResponse = { url: string; status: number; statusText: string; headers: Record<string, string>; body: string };
+type TextStreamInput = Pick<GenerationTask, "userId" | "channelId" | "model"> & { prompt: string; config?: Record<string, unknown>; signal?: AbortSignal };
 
 const running = new Map<TaskKind, number>([
     ["image", 0],
@@ -196,6 +197,19 @@ async function requestOpenAiText(task: GenerationTask, channel: AiChannel, messa
     return stringValue(payload.output_text) || textFromResponseOutput(payload.output);
 }
 
+export async function requestOpenAiTextStream(input: TextStreamInput) {
+    const channel = await resolveChannel(input);
+    if (channel.apiFormat === "gemini") throw new Error("Gemini 文本流暂不支持");
+    const taskConfig = recordConfig(input.config);
+    const messages = recordArray(taskConfig.messages);
+    return fetch(buildApiUrl(channel.baseUrl, "/responses"), {
+        method: "POST",
+        headers: { ...openAiHeaders(channel), Accept: "text/event-stream" },
+        body: JSON.stringify({ model: input.model || firstModel(channel), input: toOpenAiInput(messages, input.prompt, taskConfig), stream: true }),
+        signal: input.signal,
+    });
+}
+
 async function requestGeminiText(task: GenerationTask, channel: AiChannel, messages: Reference[]) {
     const taskConfig = recordConfig(task.config);
     const payload = await fetchJson<Record<string, unknown>>(geminiApiUrl(channel, task.model || firstModel(channel), "generateContent"), {
@@ -307,7 +321,7 @@ async function saveGeneratedBuffer(task: GenerationTask, buffer: Buffer, filenam
     return meta;
 }
 
-async function resolveChannel(task: GenerationTask) {
+async function resolveChannel(task: Pick<GenerationTask, "userId" | "channelId" | "model">) {
     const filters = [eq(aiChannels.userId, task.userId)];
     if (task.channelId) filters.push(eq(aiChannels.id, task.channelId));
     const [channel] = await db.select().from(aiChannels).where(and(...filters)).limit(1);

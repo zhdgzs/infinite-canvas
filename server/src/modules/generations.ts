@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { once } from "node:events";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -10,6 +11,7 @@ import { requireAuth } from "../auth/hooks.js";
 import { AppError, ok } from "../lib/api-response.js";
 import { now } from "../lib/time.js";
 import { pagination, queryString } from "../lib/pagination.js";
+import { requestOpenAiTextStream } from "./worker.js";
 
 const generationPayload = z.object({
     kind: z.enum(["image", "video", "audio", "text"]),
@@ -19,6 +21,8 @@ const generationPayload = z.object({
     config: z.record(z.string(), z.unknown()).optional(),
     references: z.array(z.record(z.string(), z.unknown())).optional(),
 });
+
+const textStreamPayload = generationPayload.pick({ prompt: true, channelId: true, model: true, config: true });
 
 export async function generationRoutes(app: FastifyInstance) {
     app.get("/api/generations/records", { preHandler: requireAuth }, async (request) => {
@@ -55,6 +59,42 @@ export async function generationRoutes(app: FastifyInstance) {
             })
             .returning({ id: generationTasks.id, status: generationTasks.status });
         return ok(task);
+    });
+
+    app.post("/api/generations/text/stream", { preHandler: requireAuth }, async (request, reply) => {
+        const body = textStreamPayload.parse(request.body);
+        const controller = new AbortController();
+        request.raw.once("aborted", () => controller.abort());
+        reply.raw.once("close", () => controller.abort());
+        let response: Response;
+        try {
+            response = await requestOpenAiTextStream({ ...body, prompt: body.prompt, config: body.config || {}, userId: request.auth!.user.id, signal: controller.signal });
+        } catch (error) {
+            console.error("text stream request failed", error);
+            throw error;
+        }
+        const contentType = response.headers.get("content-type") || "";
+        if (!response.ok || !contentType.includes("text/event-stream") || !response.body) {
+            const detail = await response.text();
+            console.error("text stream response failed", { url: response.url, status: response.status, statusText: response.statusText, headers: Object.fromEntries(response.headers.entries()), body: detail });
+            throw new AppError(502, response.ok ? "上游未返回 SSE 响应" : `上游请求失败：HTTP ${response.status}`, 502);
+        }
+        reply.hijack();
+        reply.raw.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+        const reader = response.body.getReader();
+        try {
+            for (;;) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (!reply.raw.write(value)) await once(reply.raw, "drain");
+            }
+        } catch (error) {
+            console.error("text stream relay failed", error);
+            if (!reply.raw.writableEnded) reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: { message: "文本流已中断" } })}\n\n`);
+        } finally {
+            controller.abort();
+            reply.raw.end();
+        }
     });
 
     app.get("/api/generations/tasks/:id", { preHandler: requireAuth }, async (request) => {
